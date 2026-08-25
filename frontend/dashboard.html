@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        dark: {
+                            900: '#080c14',
+                            800: '#0f172a',
+                            700: '#1e293b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #080c14;
+            color: #f8fafc;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-image: 
+                radial-gradient(circle at 10% 0%, rgba(99, 102, 241, 0.12), transparent 40%),
+                radial-gradient(circle at 90% 100%, rgba(14, 165, 233, 0.08), transparent 35%);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .glass-card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            background: rgba(30, 41, 59, 0.6);
+            transform: translateY(-1px);
+        }
+        .glass-input {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s ease;
+        }
+        .glass-input:focus {
+            border-color: rgba(99, 102, 241, 0.8);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-30 w-full glass-panel border-b border-white/[0.06] px-4 sm:px-8 py-3.5">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <!-- Brand Logo -->
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
+                    <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                        Meetly
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    </h1>
+                    <p class="text-[11px] text-slate-400 hidden sm:block">Private video meetings &amp; collaboration</p>
+                </div>
+            </div>
+
+            <!-- User Status & Logout -->
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/60">
+                    <div id="user-avatar" class="w-6 h-6 rounded-full bg-gradient-to-tr from-brand-500 to-cyan-400 text-white font-bold text-[10px] flex items-center justify-center">
+                        ?
+                    </div>
+                    <span id="user-name" class="text-xs font-semibold text-slate-200 truncate max-w-[120px]">User</span>
+                </div>
+
+                <button id="logout-btn" title="Sign out" class="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 w-full max-w-6xl mx-auto p-4 sm:p-8 space-y-8">
+        <!-- Quick Action Hero Grid -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- 1. Instant Meeting Card -->
+            <div class="glass-panel p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between group">
+                <div class="absolute -right-6 -bottom-6 w-28 h-28 bg-brand-500/10 rounded-full blur-2xl group-hover:bg-brand-500/20 transition-all"></div>
+                <div>
+                    <div class="w-11 h-11 rounded-2xl bg-brand-500/15 border border-brand-500/30 text-brand-400 flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-white">Instant Meeting</h2>
+                    <p class="text-xs text-slate-400 mt-1">Start a secure private room with an auto-generated code.</p>
+                </div>
+                <button id="quick-start-btn" class="mt-6 w-full py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-brand-500/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+                    <span>Start Call Now</span>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </button>
+            </div>
+
+            <!-- 2. Join via Code Card -->
+            <div class="glass-panel p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between">
+                <div>
+                    <div class="w-11 h-11 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-white">Join with Code</h2>
+                    <p class="text-xs text-slate-400 mt-1">Enter a shared room code to join an existing call.</p>
+                </div>
+                <div class="mt-4 flex gap-2">
+                    <input id="join-code-input" type="text" placeholder="e.g. 7f3a9b" maxlength="20" class="glass-input flex-1 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 uppercase tracking-wider font-mono focus:outline-none">
+                    <button id="join-code-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs sm:text-sm border border-slate-700 transition-colors shrink-0">
+                        Join
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3. Custom Room Card -->
+            <div class="glass-panel p-6 rounded-3xl relative overflow-hidden flex flex-col justify-between">
+                <div>
+                    <div class="w-11 h-11 rounded-2xl bg-purple-500/15 border border-purple-500/30 text-purple-400 flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-white">Custom Room</h2>
+                    <p class="text-xs text-slate-400 mt-1">Create a named meeting room with host ownership.</p>
+                </div>
+                <button id="open-create-modal" class="mt-6 w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700/80 text-slate-200 border border-slate-700 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+                    <span>Custom Room Setup</span>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                </button>
+            </div>
+        </section>
+
+        <!-- My Rooms Section (Private to creator) -->
+        <section class="space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-bold text-white">My Rooms</h2>
+                    <span id="rooms-count-badge" class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="relative flex-1 sm:w-64">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <input id="search-rooms" type="text" placeholder="Search my rooms..." class="glass-input w-full pl-9 pr-3 py-1.5 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                    <button id="refresh-rooms-btn" title="Refresh list" class="p-2 rounded-xl glass-panel hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                        <svg id="refresh-icon" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Rooms Grid -->
+            <div id="rooms-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="glass-panel p-5 rounded-2xl animate-pulse space-y-3">
+                    <div class="h-4 bg-slate-800 rounded w-2/3"></div>
+                    <div class="h-3 bg-slate-800 rounded w-1/3"></div>
+                    <div class="h-8 bg-slate-800 rounded mt-4"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Custom Room Creation Modal -->
+    <div id="create-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+        <div class="glass-panel w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10 relative">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-lg font-bold text-white">Create Custom Room</h3>
+                <button id="close-modal-btn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div id="modal-error" class="hidden mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs"></div>
+
+            <form id="custom-room-form" class="space-y-4" onsubmit="return false;">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Room Name</label>
+                    <input id="modal-room-name" type="text" placeholder="e.g. Team Standup" maxlength="60" class="glass-input w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Custom Code (Optional)</label>
+                    <input id="modal-room-code" type="text" placeholder="e.g. standup1" maxlength="20" class="glass-input w-full px-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 font-mono focus:outline-none">
+                    <span class="text-[11px] text-slate-500 mt-1 block">Leave empty to generate a random code.</span>
+                </div>
+                <div class="flex gap-3 pt-2">
+                    <button type="button" id="cancel-modal-btn" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" id="submit-custom-room" class="flex-1 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm shadow-lg shadow-brand-500/25 transition-all">
+                        Create &amp; Enter
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="w-full border-t border-white/[0.06] py-4 text-center text-xs text-slate-500 mt-auto">
+        Meetly &copy; 2026 &bull; Secure P2P Video Meetings
+    </footer>
+
+    <script src="/js/api.js?v=9"></script>
+    <script>
+        if (!API.getToken()) {
+            window.location.href = '/index.html';
+        }
+
+        // Roll the session forward so returning users stay signed in.
+        refreshSession();
+
+        const user = API.getUser();
+        if (user && user.username) {
+            document.getElementById('user-name').textContent = user.username;
+            document.getElementById('user-avatar').textContent = user.username.substring(0, 2).toUpperCase();
+        }
+
+        let allRooms = [];
+
+        // Check for URL query param e.g. ?join=xyz or ?room=xyz
+        const urlParams = new URLSearchParams(window.location.search);
+        const joinParam = urlParams.get('join') || urlParams.get('room');
+        if (joinParam) {
+            document.getElementById('join-code-input').value = joinParam;
+        }
+
+        function goToRoom(code) {
+            const cleanCode = code.toLowerCase().trim();
+            sessionStorage.setItem('meetly_room', cleanCode);
+            window.location.href = `/room.html?room=${cleanCode}`;
+        }
+
+        async function fetchPeerCount(code) {
+            try {
+                const data = await apiFetch(`/rooms/${code}/peers`);
+                return data.count || 0;
+            } catch {
+                return 0;
+            }
+        }
+
+        async function loadRooms() {
+            const refreshIcon = document.getElementById('refresh-icon');
+            refreshIcon.classList.add('animate-spin');
+
+            try {
+                const rooms = await apiFetch('/rooms/');
+                allRooms = rooms;
+                document.getElementById('rooms-count-badge').textContent = rooms.length;
+                renderRooms(rooms);
+            } catch (err) {
+                document.getElementById('rooms-grid').innerHTML = `
+                    <div class="col-span-full p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center text-rose-400 text-sm">
+                        ${escapeHtml(err.message)}
+                    </div>
+                `;
+            } finally {
+                setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
+            }
+        }
+
+        async function renderRooms(roomsToRender) {
+            const grid = document.getElementById('rooms-grid');
+
+            if (!roomsToRender || roomsToRender.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full p-8 glass-panel rounded-3xl text-center space-y-3">
+                        <div class="w-12 h-12 rounded-2xl bg-slate-800 text-slate-500 mx-auto flex items-center justify-center">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-300">You haven't created any rooms yet</h3>
+                        <p class="text-xs text-slate-500 max-w-sm mx-auto">Start an instant meeting above or create a custom room. Only you can see your created rooms.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const counts = await Promise.all(roomsToRender.map(r => fetchPeerCount(r.code)));
+
+            grid.innerHTML = '';
+            roomsToRender.forEach((room, index) => {
+                const count = counts[index] || 0;
+                const card = document.createElement('div');
+                card.className = 'glass-card p-5 rounded-2xl flex flex-col justify-between gap-4 relative group';
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-start justify-between gap-2">
+                            <h3 class="font-bold text-slate-100 text-sm sm:text-base truncate group-hover:text-brand-400 transition-colors">
+                                ${escapeHtml(room.name)}
+                            </h3>
+                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${count > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-400 border border-slate-700/60'} shrink-0">
+                                <span class="w-1.5 h-1.5 rounded-full ${count > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+                                <span>${count} in call</span>
+                            </span>
+                        </div>
+                        
+                        <div class="mt-2.5 flex items-center gap-2">
+                            <span class="px-2 py-1 rounded-lg bg-slate-900/80 border border-slate-700/60 text-slate-300 font-mono text-xs tracking-wider">
+                                ${escapeHtml(room.code)}
+                            </span>
+                            <button class="copy-link-btn p-1.5 rounded-lg text-slate-400 hover:text-brand-300 hover:bg-slate-800 transition-colors" data-code="${escapeHtml(room.code)}" title="Copy Share Link">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 pt-2 border-t border-white/[0.04]">
+                        <button class="join-btn flex-1 py-2 rounded-xl bg-brand-600/90 hover:bg-brand-600 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm" data-code="${escapeHtml(room.code)}">
+                            <span>Join Meeting</span>
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+
+            grid.querySelectorAll('.join-btn').forEach(btn => {
+                btn.addEventListener('click', () => goToRoom(btn.dataset.code));
+            });
+
+            grid.querySelectorAll('.copy-link-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const shareUrl = `${window.location.origin}/room.html?room=${btn.dataset.code}`;
+                    copyToClipboard(shareUrl, `Invite link for "${btn.dataset.code}" copied!`);
+                });
+            });
+        }
+
+        // Quick Start
+        document.getElementById('quick-start-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('quick-start-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Starting...</span>`;
+
+            try {
+                const room = await apiFetch('/rooms/', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: `${user?.username || 'User'}'s Meeting` })
+                });
+                goToRoom(room.code);
+            } catch (err) {
+                showToast(err.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = `<span>Start Call Now</span> <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>`;
+            }
+        });
+
+        // Join via Code
+        function handleJoinByCode() {
+            const codeInput = document.getElementById('join-code-input');
+            const code = codeInput.value.trim().toLowerCase();
+            if (!code) {
+                showToast('Please enter a room code', 'error');
+                codeInput.focus();
+                return;
+            }
+            goToRoom(code);
+        }
+
+        document.getElementById('join-code-btn').addEventListener('click', handleJoinByCode);
+        document.getElementById('join-code-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleJoinByCode();
+        });
+
+        // Search my rooms
+        document.getElementById('search-rooms').addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            const filtered = allRooms.filter(r => 
+                r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query)
+            );
+            renderRooms(filtered);
+        });
+
+        document.getElementById('refresh-rooms-btn').addEventListener('click', loadRooms);
+
+        // Modal
+        const createModal = document.getElementById('create-modal');
+        const modalError = document.getElementById('modal-error');
+
+        document.getElementById('open-create-modal').addEventListener('click', () => {
+            modalError.classList.add('hidden');
+            document.getElementById('modal-room-name').value = '';
+            document.getElementById('modal-room-code').value = '';
+            createModal.classList.remove('hidden');
+            document.getElementById('modal-room-name').focus();
+        });
+
+        function closeModal() {
+            createModal.classList.add('hidden');
+        }
+
+        document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+        document.getElementById('cancel-modal-btn').addEventListener('click', closeModal);
+
+        document.getElementById('submit-custom-room').addEventListener('click', async () => {
+            modalError.classList.add('hidden');
+            const name = document.getElementById('modal-room-name').value.trim();
+            const code = document.getElementById('modal-room-code').value.trim().toLowerCase();
+
+            try {
+                const room = await apiFetch('/rooms/', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: name || undefined, code: code || undefined })
+                });
+                closeModal();
+                goToRoom(room.code);
+            } catch (err) {
+                modalError.textContent = err.message;
+                modalError.classList.remove('hidden');
+            }
+        });
+
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            API.removeToken();
+            API.setUser(null);
+            showToast('Signed out', 'info');
+            setTimeout(() => { window.location.href = '/index.html'; }, 200);
+        });
+
+        loadRooms();
+    </script>
+</body>
+</html>

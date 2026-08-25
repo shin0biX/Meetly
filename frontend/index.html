@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Real-Time Video Calls</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        dark: {
+                            900: '#080c14',
+                            800: '#0f172a',
+                            700: '#1e293b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #080c14;
+            color: #f8fafc;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.15), transparent 45%),
+                radial-gradient(circle at 100% 100%, rgba(14, 165, 233, 0.08), transparent 40%);
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-input {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s ease;
+        }
+        .glass-input:focus {
+            border-color: rgba(99, 102, 241, 0.8);
+            background: rgba(15, 23, 42, 0.9);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-4 sm:p-6 lg:p-8 antialiased selection:bg-brand-500 selection:text-white">
+    <!-- Navbar Header -->
+    <header class="w-full max-w-5xl mx-auto flex items-center justify-between py-2">
+        <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-cyan-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
+                <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xl font-bold tracking-tight text-white">Meetly</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20">P2P Mesh</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 text-xs font-medium text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="hidden sm:inline">Systems Nominal</span>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="w-full max-w-md mx-auto my-auto py-6">
+        <div class="glass-panel rounded-3xl p-6 sm:p-8 shadow-2xl shadow-black/40 relative overflow-hidden">
+            <!-- Subtle Top Accent Glow -->
+            <div class="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-brand-500 to-cyan-400 opacity-80"></div>
+
+            <!-- Header Title -->
+            <div class="text-center mb-6">
+                <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">Welcome back</h1>
+                <p class="text-xs sm:text-sm text-slate-400 mt-1">Instant, secure video calling right in your browser</p>
+            </div>
+
+            <!-- Tab Switcher (Segmented Control) -->
+            <div class="p-1 rounded-2xl bg-slate-900/90 border border-slate-800 flex mb-6 relative">
+                <button id="tab-login" class="flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-white bg-slate-800 shadow">
+                    Sign In
+                </button>
+                <button id="tab-register" class="flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-slate-400 hover:text-slate-200">
+                    Create Account
+                </button>
+            </div>
+
+            <!-- Error and Info alerts -->
+            <div id="error-box" class="hidden mb-4 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs sm:text-sm flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <span id="error-text" class="flex-1"></span>
+            </div>
+            <div id="info-box" class="hidden mb-4 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs sm:text-sm flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span id="info-text" class="flex-1"></span>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <form id="login-form" class="space-y-4" onsubmit="return false;">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5" for="login-username">Username</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                        </div>
+                        <input id="login-username" type="text" autocomplete="username" placeholder="e.g. alex" class="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5" for="login-password">Password</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        </div>
+                        <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" class="glass-input w-full pl-10 pr-10 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                        <button type="button" class="toggle-password absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300" data-target="login-password">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <button id="login-btn" class="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white font-bold text-sm shadow-lg shadow-brand-500/25 transition-all duration-200 transform active:scale-[0.99] flex items-center justify-center gap-2">
+                    <span>Sign In to Meetly</span>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                </button>
+            </form>
+
+            <!-- REGISTER FORM -->
+            <form id="register-form" class="space-y-3.5 hidden" onsubmit="return false;">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1" for="reg-fullname">Full Name</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <input id="reg-fullname" type="text" placeholder="Alex Morgan" class="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1" for="reg-email">Email Address</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        </div>
+                        <input id="reg-email" type="email" placeholder="alex@example.com" class="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1" for="reg-username">Username</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                        </div>
+                        <input id="reg-username" type="text" placeholder="alex" class="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1" for="reg-password">Password</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        </div>
+                        <input id="reg-password" type="password" placeholder="At least 6 characters" class="glass-input w-full pl-10 pr-10 py-2.5 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none">
+                        <button type="button" class="toggle-password absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300" data-target="reg-password">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <button id="register-btn" class="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white font-bold text-sm shadow-lg shadow-brand-500/25 transition-all duration-200 transform active:scale-[0.99] flex items-center justify-center gap-2">
+                    <span>Create Account</span>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                </button>
+            </form>
+        </div>
+
+        <!-- Features Badges Grid -->
+        <div class="grid grid-cols-2 gap-3 mt-6 text-slate-400 text-xs">
+            <div class="glass-panel p-3 rounded-2xl flex items-center gap-2.5">
+                <span class="p-1.5 rounded-lg bg-brand-500/10 text-brand-400">⚡</span>
+                <span class="font-medium text-slate-300">Ultra-low P2P</span>
+            </div>
+            <div class="glass-panel p-3 rounded-2xl flex items-center gap-2.5">
+                <span class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">🔒</span>
+                <span class="font-medium text-slate-300">Encrypted Calls</span>
+            </div>
+            <div class="glass-panel p-3 rounded-2xl flex items-center gap-2.5">
+                <span class="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">💬</span>
+                <span class="font-medium text-slate-300">Live Synced Chat</span>
+            </div>
+            <div class="glass-panel p-3 rounded-2xl flex items-center gap-2.5">
+                <span class="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">📱</span>
+                <span class="font-medium text-slate-300">Mobile Ready</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full max-w-5xl mx-auto py-3 text-center text-xs text-slate-500">
+        Meetly &copy; 2026 &bull; Peer-to-peer real-time video communication
+    </footer>
+
+    <script src="/js/api.js?v=9"></script>
+    <script>
+        const errorBox = document.getElementById('error-box');
+        const errorText = document.getElementById('error-text');
+        const infoBox = document.getElementById('info-box');
+        const infoText = document.getElementById('info-text');
+
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorBox.classList.remove('hidden');
+            infoBox.classList.add('hidden');
+        }
+
+        function showInfo(msg) {
+            infoText.textContent = msg;
+            infoBox.classList.remove('hidden');
+            errorBox.classList.add('hidden');
+        }
+
+        function clearAlerts() {
+            errorBox.classList.add('hidden');
+            infoBox.classList.add('hidden');
+        }
+
+        // Segmented tab switching
+        const tabLogin = document.getElementById('tab-login');
+        const tabRegister = document.getElementById('tab-register');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+
+        function setTab(mode) {
+            clearAlerts();
+            if (mode === 'login') {
+                tabLogin.className = 'flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-white bg-slate-800 shadow';
+                tabRegister.className = 'flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-slate-400 hover:text-slate-200';
+                loginForm.classList.remove('hidden');
+                registerForm.classList.add('hidden');
+                document.getElementById('login-username').focus();
+            } else {
+                tabRegister.className = 'flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-white bg-slate-800 shadow';
+                tabLogin.className = 'flex-1 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 text-slate-400 hover:text-slate-200';
+                registerForm.classList.remove('hidden');
+                loginForm.classList.add('hidden');
+                document.getElementById('reg-fullname').focus();
+            }
+        }
+
+        tabLogin.addEventListener('click', () => setTab('login'));
+        tabRegister.addEventListener('click', () => setTab('register'));
+
+        // Toggle password visibility
+        document.querySelectorAll('.toggle-password').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetId = btn.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.classList.add('text-brand-400');
+                } else {
+                    input.type = 'password';
+                    btn.classList.remove('text-brand-400');
+                }
+            });
+        });
+
+        // Sign In Action
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            if (!username || !password) return showError('Please fill in your username and password.');
+            
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Signing in...</span>`;
+
+            try {
+                const body = new URLSearchParams({ username, password });
+                const res = await apiFetch('/auth/token', { method: 'POST', body });
+                API.setToken(res.access_token);
+                API.setUser({ username: res.username });
+                showToast('Welcome back, ' + res.username + '!', 'success');
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirect = urlParams.get('redirect') || '/dashboard.html';
+                setTimeout(() => { window.location.href = redirect; }, 300);
+            } catch (err) {
+                showError(err.message);
+                btn.disabled = false;
+                btn.innerHTML = `<span>Sign In to Meetly</span> <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>`;
+            }
+        });
+
+        // Register Action
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            const full_name = document.getElementById('reg-fullname').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const username = document.getElementById('reg-username').value.trim();
+            const password = document.getElementById('reg-password').value;
+            
+            if (!username || !email || !password) return showError('Please fill in all required fields.');
+            if (password.length < 6) return showError('Password must be at least 6 characters.');
+
+            const btn = document.getElementById('register-btn');
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Creating account...</span>`;
+
+            try {
+                await apiFetch('/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, email, full_name, password })
+                });
+                showInfo('Account created! Authenticating...');
+                const body = new URLSearchParams({ username, password });
+                const res = await apiFetch('/auth/token', { method: 'POST', body });
+                API.setToken(res.access_token);
+                API.setUser({ username: res.username });
+                showToast('Account created successfully!', 'success');
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirect = urlParams.get('redirect') || '/dashboard.html';
+                setTimeout(() => { window.location.href = redirect; }, 400);
+            } catch (err) {
+                showError(err.message);
+                btn.disabled = false;
+                btn.innerHTML = `<span>Create Account</span> <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>`;
+            }
+        });
+
+        // Enter key to submit
+        document.querySelectorAll('input').forEach(inp => {
+            inp.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    if (registerForm.classList.contains('hidden')) {
+                        document.getElementById('login-btn').click();
+                    } else {
+                        document.getElementById('register-btn').click();
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

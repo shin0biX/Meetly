@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Video Call</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                        },
+                        dark: {
+                            950: '#06090e',
+                            900: '#0a0e17',
+                            800: '#111827',
+                            700: '#1f2937',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #06090e;
+            color: #f8fafc;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow: hidden;
+        }
+
+        .glass-header {
+            background: rgba(10, 14, 23, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        }
+        .glass-dock {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+        }
+        .glass-drawer {
+            background: rgba(10, 14, 23, 0.95);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-left: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-modal {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Video Tiles */
+        .video-tile {
+            position: relative;
+            background: #0d131f;
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 16/9;
+            max-height: 100%;
+        }
+        .video-tile video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #0d131f;
+            border-radius: 1rem;
+        }
+        .video-tile.self-tile video {
+            transform: scaleX(-1);
+        }
+        .video-tile.screen-tile video {
+            transform: none !important;
+            object-fit: contain !important;
+            background: #000;
+        }
+        .video-tile.is-speaking {
+            box-shadow: 0 0 0 2.5px #6366f1, 0 0 20px rgba(99, 102, 241, 0.4);
+            border-color: #818cf8;
+        }
+
+        /* Layout grids */
+        .grid-1 {
+            grid-template-columns: minmax(0, 1fr);
+            max-width: 960px;
+            margin: 0 auto;
+        }
+        .grid-2 {
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        }
+        .grid-multi {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+
+        /* Pinned layout: one large tile + a horizontal filmstrip of the rest */
+        #video-grid.grid-pinned {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            width: 100%;
+            height: 100%;
+            max-width: none;
+        }
+        #video-grid.grid-pinned .video-tile.pinned-main {
+            flex: 1;
+            min-height: 0;
+            width: 100%;
+            aspect-ratio: auto;
+        }
+        #pinned-strip {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            flex-shrink: 0;
+            padding-bottom: 2px;
+        }
+        #pinned-strip .video-tile {
+            width: 150px;
+            min-width: 150px;
+            aspect-ratio: 16/9;
+            flex-shrink: 0;
+        }
+        #pinned-strip:empty {
+            display: none;
+        }
+
+        /* Tile overlay controls (pin / fullscreen) */
+        .tile-controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            z-index: 20;
+            display: flex;
+            gap: 0.25rem;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+        .video-tile:hover .tile-controls,
+        .video-tile.pinned-main .tile-controls {
+            opacity: 1;
+        }
+        .tile-icon-btn {
+            width: 26px;
+            height: 26px;
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(10, 14, 23, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #cbd5e1;
+            backdrop-filter: blur(6px);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .tile-icon-btn:hover {
+            background: rgba(99, 102, 241, 0.35);
+            color: #fff;
+        }
+        .tile-icon-btn.active {
+            background: #6366f1;
+            color: #fff;
+            border-color: #818cf8;
+        }
+
+        /* Raised-hand badge on a tile */
+        .tile-hand-badge {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            z-index: 20;
+            font-size: 1.1rem;
+            background: rgba(10, 14, 23, 0.75);
+            border: 1px solid rgba(251, 191, 36, 0.4);
+            border-radius: 9999px;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: handWiggle 1.4s ease-in-out infinite;
+        }
+        @keyframes handWiggle {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-12deg); }
+            75% { transform: rotate(12deg); }
+        }
+
+        /* Floating emoji reactions */
+        #reaction-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 40;
+            overflow: hidden;
+        }
+        .floating-emoji {
+            position: absolute;
+            font-size: 2rem;
+            pointer-events: none;
+            animation: floatUp 1.8s ease-out forwards;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(0.5); opacity: 0; }
+            15% { opacity: 1; transform: translateY(-10px) scale(1.15); }
+            100% { transform: translateY(-120px) scale(1); opacity: 0; }
+        }
+
+        /* Reactions popover */
+        #reactions-popover {
+            position: absolute;
+            bottom: calc(100% + 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.25rem;
+            padding: 0.75rem;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            gap: 0.5rem;
+            min-width: 220px;
+        }
+        #reactions-popover.open { display: flex; }
+        .emoji-grid-btn {
+            font-size: 1.4rem;
+            width: 40px;
+            height: 40px;
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid transparent;
+            transition: all 0.15s ease;
+        }
+        .emoji-grid-btn:hover {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: rgba(129, 140, 248, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .dock-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+        .dock-btn:active {
+            transform: scale(0.92);
+        }
+
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+    </style>
+</head>
+<body class="h-full flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+    <!-- Top Bar Header -->
+    <header class="glass-header px-3 sm:px-6 py-2.5 flex items-center justify-between z-30 shrink-0">
+        <!-- Room Code & Call Info -->
+        <div class="flex items-center gap-2 sm:gap-3">
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-brand-600 to-cyan-400 flex items-center justify-center shadow-md">
+                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <span class="font-bold text-sm tracking-tight text-white hidden md:inline">Meetly</span>
+            </div>
+
+            <div class="h-4 w-px bg-white/10 hidden sm:block"></div>
+
+            <!-- Room Code Pill with Copy -->
+            <button id="copy-room-pill" class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/70 text-slate-200 text-xs font-mono transition-all group" title="Click to copy room code">
+                <span class="text-slate-400 font-sans font-medium text-[11px] hidden sm:inline">Code:</span>
+                <span id="room-code-label" class="font-bold uppercase tracking-wider text-brand-300">...</span>
+                <svg class="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </button>
+
+            <!-- Share Invite Link Button -->
+            <button id="header-share-btn" class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-brand-300 text-xs font-semibold transition-all">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                <span class="hidden sm:inline">Share Link</span>
+            </button>
+
+            <!-- Host Badge (rendered if owner) -->
+            <span id="host-badge" class="hidden items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                👑 Host
+            </span>
+        </div>
+
+        <!-- Connection Badge & Timer -->
+        <div class="flex items-center gap-2 sm:gap-3">
+            <div id="call-timer" class="text-xs font-mono font-semibold text-slate-400 px-2.5 py-1 rounded-lg bg-slate-900/60 border border-white/[0.06] tabular-nums">
+                00:00:00
+            </div>
+
+            <div id="conn-badge" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="conn-status-text" class="hidden sm:inline">Connected</span>
+            </div>
+
+            <button id="header-leave-btn" class="sm:hidden p-1.5 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500/30">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Call Stage -->
+    <div class="flex-1 flex overflow-hidden relative">
+        <!-- Video Grid Area -->
+        <main id="stage-area" class="flex-1 p-3 sm:p-6 overflow-y-auto flex flex-col justify-center items-center relative">
+            <div id="video-grid" class="w-full h-full max-h-full grid gap-3 sm:gap-4 grid-1 items-center justify-center auto-rows-fr">
+                <!-- Video tiles injected dynamically -->
+            </div>
+
+            <!-- Floating emoji reactions render into here -->
+            <div id="reaction-overlay"></div>
+
+            <!-- Empty call hint -->
+            <div id="empty-hint" class="hidden absolute inset-0 m-auto flex flex-col items-center justify-center p-6 text-center max-w-sm pointer-events-none">
+                <div class="w-14 h-14 rounded-3xl bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center mb-3">
+                    <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-base font-bold text-white">You're the only one here</h3>
+                <p class="text-xs text-slate-400 mt-1 mb-4">Share the invite link with participants to let them join without an account.</p>
+                <button id="empty-copy-btn" class="pointer-events-auto px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-lg shadow-brand-500/20 flex items-center gap-2 transition-all active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                    <span>Share Invite Link</span>
+                </button>
+            </div>
+        </main>
+
+        <!-- Right Side Drawer (Chat & Participants) -->
+        <aside id="side-drawer" class="glass-drawer w-full sm:w-80 md:w-96 flex flex-col fixed inset-y-0 right-0 z-40 sm:relative sm:z-20 translate-x-full transition-transform duration-300 ease-out shadow-2xl">
+            <!-- Drawer Tabs Header -->
+            <div class="px-4 py-3 border-b border-white/[0.08] flex items-center justify-between">
+                <div class="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/[0.06]">
+                    <button id="drawer-tab-chat" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-white shadow-sm transition-colors">
+                        Chat
+                    </button>
+                    <button id="drawer-tab-people" class="px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition-colors flex items-center gap-1.5">
+                        <span>People</span>
+                        <span id="people-count-pill" class="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300">1</span>
+                    </button>
+                </div>
+
+                <button id="close-drawer-btn" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <!-- CHAT VIEW -->
+            <div id="drawer-view-chat" class="flex-1 flex flex-col min-h-0">
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div class="text-center py-6 text-slate-500 text-xs">
+                        Messages are saved for participants in this room.
+                    </div>
+                </div>
+
+                <div class="p-3 border-t border-white/[0.08] bg-slate-900/80 space-y-2">
+                    <select id="chat-target-select" class="w-full px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/80 text-[11px] sm:text-xs text-slate-300 focus:outline-none focus:border-brand-500">
+                        <option value="">Everyone</option>
+                    </select>
+                    <form id="chat-form" class="flex items-center gap-2" onsubmit="return false;">
+                        <input id="chat-input" type="text" placeholder="Send a message..." autocomplete="off" class="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700/80 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500">
+                        <button id="chat-send" type="submit" class="p-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white shrink-0 transition-colors">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- PEOPLE VIEW (With Host Controls) -->
+            <div id="drawer-view-people" class="flex-1 overflow-y-auto p-4 space-y-3 hidden">
+                <div class="p-3 rounded-2xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-between gap-2">
+                    <div>
+                        <div class="text-xs font-bold text-white">Invite Teammates</div>
+                        <div class="text-[11px] text-slate-400">Guests can join without an account</div>
+                    </div>
+                    <button id="drawer-share-btn" class="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow transition-colors flex items-center gap-1">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        <span>Copy</span>
+                    </button>
+                </div>
+
+                <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-1 pt-1">
+                    Participants
+                </div>
+
+                <div id="people-list" class="space-y-2">
+                    <!-- Injected dynamically -->
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Floating Controls Dock -->
+    <footer class="fixed bottom-4 sm:bottom-6 inset-x-0 mx-auto max-w-fit z-30 px-3 py-2 rounded-full glass-dock flex items-center gap-2 sm:gap-3">
+        <!-- 1. Microphone Button -->
+        <button id="mic-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Toggle Microphone (M)">
+            <svg id="mic-icon-on" class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+            <svg id="mic-icon-off" class="w-5 h-5 text-rose-400 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+        </button>
+
+        <!-- 2. Camera Button -->
+        <button id="cam-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Toggle Camera (V)">
+            <svg id="cam-icon-on" class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <svg id="cam-icon-off" class="w-5 h-5 text-rose-400 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+        </button>
+
+        <!-- 3. Screen Share Button -->
+        <button id="screen-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex" title="Share Screen">
+            <svg id="screen-icon" class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+        </button>
+
+        <!-- 4. Reactions: raise hand + quick emoji -->
+        <div class="relative">
+            <button id="reactions-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Reactions">
+                <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </button>
+            <div id="reactions-popover">
+                <button id="raise-hand-btn" class="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-200 bg-white/5 hover:bg-white/10 transition-colors">
+                    <span class="text-base">✋</span>
+                    <span id="raise-hand-label">Raise Hand</span>
+                </button>
+                <div class="grid grid-cols-4 gap-1.5 pt-1">
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="👍">👍</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="❤️">❤️</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😂">😂</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😮">😮</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="🎉">🎉</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="👏">👏</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😢">😢</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="🤔">🤔</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Chat Drawer Toggle -->
+        <button id="chat-drawer-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Open Chat (C)">
+            <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <span id="unread-badge" class="hidden absolute -top-1 -right-1 w-4 h-4 rounded-full bg-brand-500 text-white text-[9px] font-bold flex items-center justify-center">0</span>
+        </button>
+
+        <!-- 6. People Drawer Toggle -->
+        <button id="people-drawer-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Participants">
+            <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+        </button>
+
+        <div class="h-6 w-px bg-white/10 mx-0.5 sm:mx-1"></div>
+
+        <!-- 7. End / Leave Call Button -->
+        <button id="leave-btn" class="dock-btn bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 !px-4 !w-auto gap-1.5" title="Leave Call">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a11.042 11.042 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" />
+            </svg>
+            <span class="text-xs font-bold hidden sm:inline">Leave</span>
+        </button>
+    </footer>
+
+    <!-- GUEST NAME MODAL (Shown if user is joining without an account) -->
+    <div id="guest-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+        <div class="glass-modal w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10 relative">
+            <div class="text-center mb-6">
+                <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-brand-600 to-cyan-400 flex items-center justify-center mx-auto mb-3 shadow-lg shadow-brand-500/20">
+                    <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-white">Join Meeting as Guest</h3>
+                <p class="text-xs text-slate-400 mt-1">Enter your display name to join room <span id="modal-room-code-tag" class="font-mono font-bold text-brand-300">...</span></p>
+            </div>
+
+            <form id="guest-name-form" class="space-y-4" onsubmit="return false;">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5" for="guest-name-input">Your Display Name</label>
+                    <input id="guest-name-input" type="text" placeholder="e.g. Sarah Connor" maxlength="30" class="w-full px-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700/80 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20">
+                </div>
+
+                <button type="submit" id="guest-join-btn" class="w-full py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-500/25 transition-all active:scale-[0.98]">
+                    Join Meeting
+                </button>
+
+                <div class="text-center pt-2">
+                    <a id="signin-instead-link" href="#" class="text-xs text-slate-400 hover:text-brand-300 transition-colors">
+                        Already have an account? <span class="text-brand-400 underline">Sign In</span>
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.14/dist/livekit-client.umd.min.js"></script>
+    <script src="/js/api.js?v=11"></script>
+    <script src="/js/room.js?v=11"></script>
+</body>
+</html>
