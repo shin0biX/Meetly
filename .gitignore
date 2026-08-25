@@ -1,0 +1,31 @@
+# Environment variables
+.env
+
+# Virtual environment
+venv/
+ENV/
+env/
+ENV/
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite database
+meetly.db
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local development files
+setup_livekit.sh.backup
+livekit.yaml.backup
+
+# If you want to ignore the livekit.yaml (if it exists) but we removed it
+livekit.yaml
