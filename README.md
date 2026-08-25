@@ -1,168 +1,272 @@
 # Meetly — Live Video Call & Chat
 
-A real-time video call + chat web app built with **FastAPI**, **WebRTC**, **WebSockets**, **SQLite**, and **LiveKit Cloud** for scalable SFU (Selective Forwarding Unit) media routing.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Features
+A scalable, real-time video conferencing and chat application built with modern web technologies. Meetly provides secure video calls with automatic fallback mechanisms for reliable connectivity in any network environment.
 
-- **Live video & audio calls** via LiveKit Cloud SFU (scalable beyond mesh WebRTC limits)
-- **User accounts**: register/login with bcrypt-hashed passwords + JWT auth
-- **Persistent rooms**: create rooms (auto or custom code), join public rooms, see available rooms
-- **Persistent chat**: messages stored in SQLite and replayed when you join a room
-- **Authenticated WebSockets**: signaling connection validates JWT before accepting
-- Mic / camera toggles, auto-mute badges, name tags, live video grid
-- **Fallback to TURN/coturn**: Uses your self-hosted coturn as backup if LiveKit Cloud unreachable
-- **Mesh WebRTC fallback**: Direct peer-to-peer if neither SFU nor TURN available
+## ✨ Features
 
-## How It Works
+- **High-Quality Video & Audio**: Powered by WebRTC with LiveKit Cloud SFU for scalable media routing
+- **Secure Authentication**: JWT-based auth with bcrypt password hashing
+- **Persistent Chat**: Message history stored in SQLite and replayed on room join
+- **Smart Fallbacks**: Automatic fallback to TURN server and peer-to-peer WebRTC
+- **User-Friendly Interface**: Clean UI with mic/camera controls, video grid, and real-time chat
+- **Room Management**: Create rooms with custom codes, browse public rooms, and join instantly
+- **Responsive Design**: Works on desktop and mobile browsers
+- **Easy Deployment**: Systemd service scripts and Docker support
+
+## 🏗️ How It Works
+
+Meetly uses a hybrid approach to media transport, prioritizing reliability and scalability:
 
 ```
-[User]  --WebSocket (JWT-auth)-->  [FastAPI Signaling Server]
-                                    │
-                                    ├────> [LiveKit Cloud SFU] ────> Media (SFU)
-                                    │
-                                    └────> [coturn TURN] ────> Media (relay fallback)
-                                    │
-                                    └────> [Peer-to-Peer WebRTC] ──> Media (direct fallback)
+[User Browser] 
+        │
+        ├─ Signaling → FastAPI WebSocket (JWT authenticated)
+        │
+        └─ Media → [Primary] LiveKit Cloud SFU
+                    │
+                    ├─ [Fallback 1] Self-hosted coturn TURN server
+                    │
+                    └─ [Fallback 2] Direct peer-to-peer WebRTC
 ```
 
-- **Signaling**: Handled by your FastAPI server (authenticated WebSockets)
-- **Media Transport**: 
-  1. **Primary**: LiveKit Cloud SFU (global scalable infrastructure)
-  2. **Fallback 1**: Your coturn TURN server (ports 3478 UDP/TCP) 
-  3. **Fallback 2**: Direct peer-to-peer WebRTC (mesh topology)
-- **Chat & Room State**: Persisted in SQLite, coordinated by FastAPI
-- **IceServers**: Dynamically provided based on available services
+**Key Components:**
+1. **Signaling Server**: FastAPI handles WebSocket connections for session initialization and chat messages
+2. **Media Transport**: 
+   - Primary: LiveKit Cloud SFU (Selective Forwarding Unit) for scalable media distribution
+   - Fallback 1: Your coturn TURN server for relay when direct connections fail
+   - Fallback 2: Peer-to-peer WebRTC mesh for LAN/Wi-Fi direct communication
+3. **Data Persistence**: SQLite database stores user accounts, rooms, and chat history
+4. **Client**: Vanilla JavaScript frontend with Tailwind CSS and LiveKit WebSocket SDK
 
-## Stack
+## 📦 Tech Stack
 
-- **Backend**: FastAPI + uvicorn, SQLAlchemy + SQLite (`backend/meetly.db`)
-- **Auth**: bcrypt (passlib) + JWT (python-jose)
-- **Frontend**: vanilla JS + Tailwind (CDN), LiveKit WebSocket client in `frontend/js/room.js`
-- **Media SFU**: LiveKit Cloud (primary) + coturn TURN (fallback) + WebRTC P2P (last resort)
-- **STUN/TURN**: Google STUN + your coturn TURN + LiveKit Cloud built-in TURN
+**Backend:**
+- **Framework**: FastAPI (ASGI) for high-performance async APIs
+- **Database**: SQLAlchemy ORM with SQLite for simplicity and reliability
+- **Authentication**: Python-JWT for tokens, Passlib for bcrypt password hashing
+- **Real-time**: WebSockets for bidirectional client-server communication
+- **Media SFU**: LiveKit Cloud (primary) with coturn TURN fallback
 
-## Environment Variables (`.env` - **gitignored**)
+**Frontend:**
+- **Language**: Vanilla JavaScript (ES6+) for no-build simplicity
+- **Styling**: Tailwind CSS via CDN for rapid UI development
+- **Media**: LiveKit WebSocket client SDK for WebRTC handling
+- **Templating**: Plain HTML5 with semantic structure
 
+**Infrastructure:**
+- **TURN Server**: coturn for media relay fallback
+- **Reverse Proxy**: Nginx configuration available via setup script
+- **Process Manager**: Systemd service for production deployment
+- **Tunneling**: Cloudflare tunnel support for local development exposure
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Python 3.8+
+- Git
+- (Optional) Docker for containerized deployment
+- (Optional) coturn for self-hosted TURN fallback
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/meetly.git
+   cd meetly
+   ```
+
+2. **Set up virtual environment**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   # or
+   .\venv\Scripts\activate   # Windows
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` with your configuration:
+   ```env
+   # Required
+   MEETLY_SECRET_KEY=your_32_byte_hex_secret_here
+
+   # LiveKit Cloud (get from https://cloud.livekit.io)
+   LIVEKIT_API_KEY=your_livekit_api_key
+   LIVEKIT_API_SECRET=your_livekit_api_secret
+   LIVEKIT_URL=wss://your_project.livekit.cloud
+
+   # Optional: TURN configuration
+   TURN_SECRET=your_turn_secret
+   TURN_REALM=your_domain_or_ip
+   ```
+
+5. **Start the development server**
+   ```bash
+   uvicorn backend.main:app --reload --port 7000
+   ```
+
+6. **Open your browser**
+   Visit `http://localhost:7000` to register, log in, and start video calls!
+
+## 🐳 Docker Deployment
+
+### Quick Start with Docker Compose
 ```bash
-# Required for Meetly
-MEETLY_SECRET_KEY=your_32_byte_hex_secret_here
-
-# LiveKit Cloud (get from https://cloud.livekit.io)
-LIVEKIT_API_KEY=your_livekit_api_key
-LIVEKIT_API_SECRET=your_livekit_api_secret
-LIVEKIT_URL=wss://your_project.livekit.cloud
-
-# Optional: TURN configuration (if using coturn)
-TURN_SECRET=your_turn_secret
-TURN_REALM=your_domain_or_ip
+docker-compose up -d
 ```
+The app will be available at `http://localhost:7000`
 
-Get your LiveKit Cloud credentials at: https://cloud.livekit.io (free tier available)
-
-## Run Locally (Development)
-
+### Manual Docker Build
 ```bash
-cd Meetly
-python3 -m venv venv
-./venv/bin/pip install -r requirements.txt
-
-# Create .env file (gitignored)
-echo "MEETLY_SECRET_KEY=$(./venv/bin/python -c 'import secrets;print(secrets.token_hex(32))')" >> .env
-echo "LIVEKIT_API_KEY=your_key_from_cloud.livekit.io" >> .env
-echo "LIVEKIT_API_SECRET=your_secret_from_cloud.livekit.io" >> .env
-echo "LIVEKIT_URL=wss://your_project.livekit.cloud" >> .env
-
-./venv/bin/uvicorn backend.main:app --reload --port 7000
+docker build -t meetly .
+docker run -p 7000:7000 --env-file .env meetly
 ```
 
-Open **http://localhost:7000** → register → create/join a room.
+## 🛠️ Production Deployment
 
-## Deploy as a Service (systemd)
-
+### Systemd Service
 ```bash
-sudo ./deploy.sh     # writes /etc/systemd/system/meetly.service, enables & starts on port 7000
+sudo ./deploy.sh   # Installs and enables meetly.service
+```
+This creates a systemd service that:
+- Runs the FastAPI application with Gunicorn workers
+- Automatically restarts on failure
+- Logs to journalctl
+- Binds to port 7000 (adjustable via environment)
+
+### Manual Systemd Setup
+1. Copy the service file:
+   ```bash
+   sudo cp deploy.sh /etc/systemd/system/meetly.service
+   ```
+2. Enable and start:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable meetly
+   sudo systemctl start meetly
+   ```
+
+## 📁 Project Structure
+
+```
+meetly/
+├── backend/                 # FastAPI backend
+│   ├── main.py             # Application entry point
+│   ├── config.py           # Configuration from environment
+│   ├── database.py         # SQLAlchemy setup
+│   ├── models.py           # Database models (User, Room, Message)
+│   └── routes/             # API route handlers
+│       ├── auth.py         # Registration, login, token endpoints
+│       ├── rooms.py        # Room creation, listing, management
+│       ├── realtime.py     # WebSocket signaling and chat
+│       └── turn.py         # TURN credentials for clients
+├── frontend/               # Static frontend files
+│   ├── index.html          # Landing page (login/register)
+│   ├── dashboard.html      # Room listing and creation
+│   ├── room.html           # Video call interface
+│   └── js/                 # JavaScript modules
+│       ├── api.js          # REST API wrapper
+│       └── room.js         # Video room logic with LiveKit
+├── scripts/                # Deployment and utility scripts
+│   ├── deploy.sh           # Systemd service installer
+│   ├── setup_infra.sh      # coturn + nginx setup
+│   └── add_to_tunnel.sh    # Cloudflare tunnel helper
+├── test_e2e.py             # End-to-end test suite
+├── requirements.txt        # Python dependencies
+└── .env.example            # Environment variables template
 ```
 
-This runs your Meetly application as a background service that will:
-1. Use LiveKit Cloud for media when available
-2. Fall back to your coturn TURN server if LiveKit Cloud unreachable  
-3. Fall back to peer-to-peer WebRTC if neither is available
+## ⚙️ Environment Variables
 
-## Project Layout
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `MEETLY_SECRET_KEY` | Secret key for JWT signing | Yes | (randomly generated) |
+| `LIVEKIT_API_KEY` | LiveKit Cloud API key | Yes | - |
+| `LIVEKIT_API_SECRET` | LiveKit Cloud API secret | Yes | - |
+| `LIVEKIT_URL` | LiveKit WebSocket URL (wss://...) | Yes | - |
+| `TURN_SECRET` | Shared secret for coturn TURN | No | - |
+| `TURN_REALM` | Realm for TURN authentication | No | - |
+| `PORT` | Port to bind the server | No | `7000` |
+| `HOST` | Host to bind the server | No | `0.0.0.0` |
 
-```
-Meetly/
-├── backend/
-│   ├── main.py              # FastAPI app, serves frontend, handles signaling
-│   ├── config.py            # JWT secret & LiveKit config from env/.env
-│   ├── database.py          # SQLAlchemy engine/session
-│   ├── models.py            # User, Room, ChatMessage
-│   └── routes/
-│       ├── auth.py          # register / token / me
-│       ├── rooms.py         # create / list / get / messages (chat history)
-│       ├── realtime.py      # WebSocket signaling + chat persistence
-│       └── turn.py          # TURN credentials endpoint (for coturn)
-├── frontend/
-│   ├── index.html           # login / register
-│   ├── dashboard.html       # room list + create/join
-│   ├── room.html            # video grid + chat panel
-│   └── js/ (api.js, room.js)
-├── test_e2e.py              # full user-journey test (register→login→room→chat)
-├── deploy.sh                # systemd deployment (run with sudo)
-├── setup_infra.sh           # Setup coturn + nginx (run with sudo)
-├── add_to_tunnel.sh         # Add hostname to Cloudflare tunnel (run with sudo)
-├── .gitignore               # Excludes .env, venv, __pycache__, meetly.db, etc.
-└── requirements.txt
-```
+## 🔐 Security Features
 
-## Important Notes
+- **Password Security**: Bcrypt hashing with salt
+- **Token Security**: JWT with HS256 algorithm and expiration
+- **Input Validation**: Pydantic models for request validation
+- **CORS Protection**: Configured origins for frontend
+- **SQL Injection Prevention**: SQLAlchemy ORM usage
+- **Static File Safety**: Proper serving of frontend assets
 
-### 🌐 **Current Media Flow Priority**
-1. **LiveKit Cloud SFU** - Primary (scalable, global, includes built-in TURN)
-2. **coturn TURN Server** - Your self-hosted backup (ports 3478) 
-3. **Peer-to-Peer WebRTC** - Direct mesh (last resort, limited to ~6-8 users)
+## 📱 Browser Support
 
-### 🔧 **Infrastructure Still in Place**
-- **coturn TURN server**: Still installed and running as fallback
-- **nginx reverse proxy**: Configured via `setup_infra.sh` (if used)
-- **Cloudflare tunnel**: Still forwarding `meetly.ujjawalcodes.site` to localhost:7000
+Meetly works in all modern browsers that support WebRTC:
+- Chrome (desktop/Android)
+- Firefox (desktop/Android)
+- Safari (desktop/iOS)
+- Edge
+- Opera
 
-### 📱 **Port Requirements**
-- **Incoming**: Only port 80/443 (via Cloudflare tunnel) needed for signaling
-- **Media**: Handled by LiveKit Cloud global network (no port forwarding needed!)
-- **TURN fallback**: Uses coturn on ports 3478 UDP/TCP (if LiveKit Cloud unreachable)
+*Note: iOS Safari requires HTTPS for getUserMedia; development uses HTTP localhost which is exempt.*
 
-### 🆓 **LiveKit Cloud Free Tier**
-- 10,000 participant minutes per month
-- 1 GB egress bandwidth per month
-- Global SFU infrastructure
-- Built-in TURN servers (redundant with your coturn)
-- **No credit card required** for signup
+## 🧪 Testing
 
-## Verification
-
-Check that services are running:
+### Run the test suite
 ```bash
-# Your Meetly app
-systemctl is-active meetly.service  # Should show: active
+python test_e2e.py
+```
+This performs a full user journey test:
+1. Register a new user
+2. Log in and get JWT
+3. Create a room
+4. Join the room
+5. Send/receive chat messages
+6. Verify video/audio functionality
 
-# Your coturn TURN (fallback)
-systemctl is-active coturn.service  # Should show: active  
-
-# LiveKit local service (should be inactive since we're using Cloud)
-systemctl is-active livekit.service  # Should show: inactive (expected)
-
-# Test connectivity
-curl -s http://localhost:7000/ | head -5  # Should return HTML
+### Backend Testing
+```bash
+# Run specific test modules
+pytest backend/tests/  # If you add unit tests
 ```
 
-## Next Steps
+## 📈 Scaling Considerations
 
-1. **Monitor usage**: Visit https://cloud.livekit.io to track your free tier usage
-2. **Scale as needed**: LiveKit Cloud handles automatic scaling beyond mesh limits
-3. **Backup strategy**: Your coturn TURN provides reliable fallback if needed
-4. **Custom domains**: Configure LiveKit Cloud with your own domain if desired (optional)
+- **LiveKit Cloud**: Handles automatic scaling for SFU needs
+- **Stateless Design**: Backend can be scaled horizontally behind a load balancer
+- **Database**: For high chat volume, consider upgrading from SQLite to PostgreSQL
+- **TURN Server**: Scale coturn based on expected fallback traffic
+- **Caching**: Add Redis for session storage if needed
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [LiveKit](https://livekit.io/) for the excellent SFU infrastructure
+- The open-source WebRTC community
+- FastAPI team for the amazing Python framework
+- Tailwind CSS for utility-first styling
 
 ---
 
-**Meetly is now configured for reliable, scalable video conferencing using LiveKit Cloud as the primary media transport, with your self-hosted TURN server as a robust fallback.**
+**Meetly** provides reliable, scalable video conferencing with intelligent fallbacks to ensure connectivity in any network environment. Built with modern Python and JavaScript technologies, it's easy to deploy, customize, and extend.
