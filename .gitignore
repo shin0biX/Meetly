@@ -29,3 +29,5 @@ livekit.yaml.backup
 
 # If you want to ignore the livekit.yaml (if it exists) but we removed it
 livekit.yaml
+backend/.env
+.env

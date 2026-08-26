@@ -47,6 +47,9 @@
         localPinId: null,     // tile the viewer manually pinned/fullscreened (takes priority)
         hostSpotlightId: null,// tile the host spotlighted for everyone (used when no local pin)
         dmTarget: '',         // '' = Everyone, otherwise a peer client_id
+        bgMode: 'none',       // 'none' | 'blur' | 'image'
+        bgImageUrl: null,     // data URL for the active virtual background image
+        facingMode: 'user',   // 'user' (front) | 'environment' (back) -- mobile camera direction
     };
 
     // DOM Elements
@@ -66,6 +69,9 @@
     const signinInsteadLink = document.getElementById('signin-instead-link');
     const reactionOverlay = document.getElementById('reaction-overlay');
     const chatTargetSelect = document.getElementById('chat-target-select');
+    const bgPopover = document.getElementById('bg-popover');
+    const bgBtn = document.getElementById('bg-btn');
+    const bgUploadInput = document.getElementById('bg-upload-input');
 
     if (signinInsteadLink) {
         signinInsteadLink.href = `/index.html?redirect=${encodeURIComponent('/room.html?room=' + room)}`;
@@ -159,6 +165,10 @@
         const lkRoom = new LivekitClient.Room({
             adaptiveStream: true, // don't pull full-res video for tiles the viewer can't see
             dynacast: true,       // stop encoding simulcast layers nobody is subscribed to
+            // Without this, mobile browsers often default to the back
+            // camera on first join -- this makes every camera start
+            // (initial join AND any later re-enable) prefer the front one.
+            videoCaptureDefaults: { facingMode: state.facingMode },
         });
         state.lkRoom = lkRoom;
 
@@ -196,6 +206,127 @@
             camPub.track.attach(video);
         }
         updateGridLayout();
+        detectMultipleCameras();
+    }
+
+    // Show the flip-camera button only on devices that actually have more
+    // than one camera (phones/tablets) -- pointless clutter on a laptop with
+    // a single webcam. Device labels/count are only populated once
+    // permission has been granted, so this only runs after camera start.
+    async function detectMultipleCameras() {
+        const switchBtn = document.getElementById('switch-cam-btn');
+        if (!switchBtn) return;
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput');
+            switchBtn.classList.toggle('hidden', videoInputs.length < 2);
+        } catch (err) {
+            console.log('Camera enumeration notice:', err);
+        }
+    }
+
+    // Flips between front ('user') and back ('environment') camera. Uses
+    // facingMode constraints rather than picking a specific deviceId, since
+    // that's the approach that works reliably across phone browsers without
+    // needing to match device labels.
+    async function switchCamera() {
+        if (!state.lkRoom || !state.camOn) return;
+        const camPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
+        const track = camPub && camPub.track;
+        if (!track) return;
+
+        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+        try {
+            await track.restartTrack({ facingMode: state.facingMode });
+            // Re-attach in case restartTrack swapped the underlying media
+            // stream, and re-apply any active virtual background since a
+            // restarted track can lose a previously set processor.
+            const tile = document.getElementById('tile-me');
+            const video = tile && tile.querySelector('video');
+            if (video) track.attach(video);
+            if (state.bgMode !== 'none') {
+                applyBackgroundMode(state.bgMode, state.bgImageUrl);
+            }
+            showToast(state.facingMode === 'user' ? 'Front camera' : 'Back camera', 'info', 1500);
+        } catch (err) {
+            console.warn('Camera switch failed:', err);
+            state.facingMode = state.facingMode === 'user' ? 'environment' : 'user'; // revert
+            showToast('Could not switch camera', 'error', 2500);
+        }
+    }
+
+    // Virtual background / blur. Uses LiveKit's official track-processors
+    // package, loaded lazily (only if someone actually opens the panel) since
+    // it pulls in a WASM segmentation model that's unnecessary weight for
+    // everyone who never touches the feature.
+    let _bgProcessorModulePromise = null;
+    function loadBackgroundProcessors() {
+        if (!_bgProcessorModulePromise) {
+            _bgProcessorModulePromise = import('https://cdn.jsdelivr.net/npm/@livekit/track-processors@0.3.1/+esm');
+        }
+        return _bgProcessorModulePromise;
+    }
+
+    // A few built-in gradient backgrounds, generated on the fly so we don't
+    // depend on any third-party image hosting staying online.
+    const BG_PRESETS = {
+        office: ['#1e293b', '#334155'],
+        studio: ['#4c1d95', '#7c3aed'],
+        warm: ['#78350f', '#d97706'],
+        cool: ['#0c4a6e', '#0ea5e9'],
+    };
+    function makePresetBackgroundDataUrl(presetId) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 360;
+        const ctx = canvas.getContext('2d');
+        const [c1, c2] = BG_PRESETS[presetId] || BG_PRESETS.office;
+        const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        grad.addColorStop(0, c1);
+        grad.addColorStop(1, c2);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/png');
+    }
+
+    // Applies (or clears) a background effect on the local camera track.
+    // Safe to call any time the camera is on; re-called automatically
+    // whenever the camera is re-enabled after being toggled off (see
+    // setCamState) since LiveKit may hand back a fresh track instance then.
+    async function applyBackgroundMode(mode, imageUrl = null) {
+        state.bgMode = mode;
+        state.bgImageUrl = imageUrl;
+        updateBgPopoverActiveState();
+
+        if (!state.lkRoom) return; // picked before camera ever started; applied on connect instead
+        const camPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
+        const track = camPub && camPub.track;
+        if (!track) return;
+
+        try {
+            if (mode === 'none') {
+                await track.stopProcessor();
+            } else {
+                const { BackgroundBlur, VirtualBackground } = await loadBackgroundProcessors();
+                const processor = mode === 'blur' ? BackgroundBlur(10) : VirtualBackground(imageUrl);
+                await track.setProcessor(processor);
+            }
+        } catch (err) {
+            console.error('Virtual background failed:', err);
+            showToast('Virtual background isn\'t supported in this browser', 'error', 3500);
+            state.bgMode = 'none';
+            updateBgPopoverActiveState();
+        }
+    }
+
+    function updateBgPopoverActiveState() {
+        document.querySelectorAll('.bg-option-btn[data-mode], .bg-swatch-btn').forEach(btn => {
+            const isImageMatch = btn.dataset.mode === 'image' &&
+                state.bgMode === 'image' &&
+                state.bgImageUrl === (btn.dataset.preset ? makePresetBackgroundDataUrl(btn.dataset.preset) : state.bgImageUrl);
+            const isPlainMatch = btn.dataset.mode !== 'image' && btn.dataset.mode === state.bgMode;
+            btn.classList.toggle('active', isImageMatch || isPlainMatch);
+        });
     }
 
     function onActiveSpeakersChanged(speakers) {
@@ -862,9 +993,18 @@
     function setCamState(on, announce = true) {
         state.camOn = on;
         if (state.lkRoom) {
-            state.lkRoom.localParticipant.setCameraEnabled(on).catch(err => {
-                console.warn('setCameraEnabled failed:', err);
-            });
+            state.lkRoom.localParticipant.setCameraEnabled(on)
+                .then(() => {
+                    // Re-enabling the camera may hand back a fresh track
+                    // instance, which loses any previously applied
+                    // background effect -- put it back if one was active.
+                    if (on && state.bgMode !== 'none') {
+                        applyBackgroundMode(state.bgMode, state.bgImageUrl);
+                    }
+                })
+                .catch(err => {
+                    console.warn('setCameraEnabled failed:', err);
+                });
         }
         const camBtn = document.getElementById('cam-btn');
         const iconOn = document.getElementById('cam-icon-on');
@@ -1067,6 +1207,7 @@
     // Event Bindings
     document.getElementById('mic-btn')?.addEventListener('click', toggleMic);
     document.getElementById('cam-btn')?.addEventListener('click', toggleCam);
+    document.getElementById('switch-cam-btn')?.addEventListener('click', switchCamera);
     document.getElementById('screen-btn')?.addEventListener('click', toggleScreenShare);
     document.getElementById('leave-btn')?.addEventListener('click', leaveCall);
     document.getElementById('header-leave-btn')?.addEventListener('click', leaveCall);
@@ -1121,6 +1262,42 @@
             showFloatingEmoji('me', emoji); // show it over our own tile immediately
             reactionsPopover?.classList.remove('open');
         });
+    });
+
+    // Virtual background / blur picker
+    bgBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bgPopover?.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+        if (bgPopover?.classList.contains('open') &&
+            !bgPopover.contains(e.target) && e.target !== bgBtn) {
+            bgPopover.classList.remove('open');
+        }
+    });
+
+    document.getElementById('bg-popover')?.querySelectorAll('.bg-option-btn[data-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            applyBackgroundMode(btn.dataset.mode);
+        });
+    });
+    document.querySelectorAll('.bg-swatch-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const dataUrl = makePresetBackgroundDataUrl(btn.dataset.preset);
+            applyBackgroundMode('image', dataUrl);
+        });
+    });
+    bgUploadInput?.addEventListener('change', () => {
+        const file = bgUploadInput.files && bgUploadInput.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            showToast('Please choose an image file', 'error', 2500);
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => applyBackgroundMode('image', reader.result);
+        reader.readAsDataURL(file);
+        bgUploadInput.value = ''; // allow re-selecting the same file later
     });
 
     // Keyboard Shortcuts
