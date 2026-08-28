@@ -40,8 +40,8 @@ class MessageOut(BaseModel):
 
 
 def generate_room_code() -> str:
-    """Generate a high-entropy, URL-safe room access code (128 bits)."""
-    return secrets.token_urlsafe(16)
+    """Generate a high-entropy, lowercase hexadecimal room access code (128 bits)."""
+    return secrets.token_hex(16)
 
 
 ROOM_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
