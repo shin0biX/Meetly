@@ -2,7 +2,7 @@
 (() => {
     // 1) Extract room code from URL param or sessionStorage
     const urlParams = new URLSearchParams(window.location.search);
-    let room = (urlParams.get('room') || sessionStorage.getItem('meetly_room') || '').toLowerCase().trim();
+    let room = (urlParams.get('room') || sessionStorage.getItem('meetly_room') || '').trim();
 
     if (!room) {
         window.location.href = '/dashboard.html';
@@ -1208,10 +1208,12 @@
     // Initial Chat History
     async function loadChatHistory() {
         try {
-            // Guests have no account, so pass their display name to let the
-            // server include DMs sent to/from them (see rooms.py filtering).
-            const qs = (!token && guestToken) ? `?guest_token=${encodeURIComponent(guestToken)}` : '';
-            const msgs = await apiFetch(`/rooms/${room}/messages${qs}`);
+            // Guest credentials are sent in the Authorization header, never in
+            // the URL, so they are not exposed through browser history or URL logs.
+            const options = (!token && guestToken)
+                ? { headers: { Authorization: `Bearer ${guestToken}` } }
+                : {};
+            const msgs = await apiFetch(`/rooms/${room}/messages`, options);
             if (msgs && msgs.length > 0) {
                 chatMessages.innerHTML = '';
                 msgs.forEach(m => {

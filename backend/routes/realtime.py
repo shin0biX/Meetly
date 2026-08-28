@@ -11,11 +11,12 @@ from collections import defaultdict, deque
 from typing import Deque, Dict, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 
-from database import SessionLocal
+from database import SessionLocal, get_db
 from models import User, Room, ChatMessage
+from routes.auth import get_current_user
 from config import SECRET_KEY, ALGORITHM, ALLOWED_ORIGINS, GUEST_TOKEN_EXPIRE_HOURS
 from routes.turn import issue_turn_ticket, revoke_turn_ticket
 
@@ -63,7 +64,7 @@ def create_guest_token(guest_id: str, room_code: str, display_name: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": "guest", "typ": "guest_access", "gid": guest_id,
-        "room": room_code.lower(), "display": display_name,
+        "room": room_code, "display": display_name,
         "iat": now, "exp": now + timedelta(hours=GUEST_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -73,7 +74,7 @@ def verify_guest_token(token: str, room_code: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if (payload.get("sub") != "guest" or payload.get("typ") != "guest_access"
-                or payload.get("room") != room_code.lower() or not payload.get("gid")):
+                or payload.get("room") != room_code or not payload.get("gid")):
             return None
         from uuid import UUID
         payload["gid"] = str(UUID(str(payload["gid"])))
@@ -175,9 +176,18 @@ def persist_chat(
 
 
 @router.get("/rooms/{room_code}/peers", tags=["rooms"])
-def get_peers(room_code: str):
-    """Return the current number of connected peers in a room."""
-    return {"room_code": room_code, "count": get_room_member_count(room_code)}
+def get_peers(
+    room_code: str,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Return peer count only to the room owner to prevent room enumeration."""
+    room = db.query(Room).filter(Room.code == room_code).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if room.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this room")
+    return {"room_code": room.code, "count": get_room_member_count(room.code)}
 
 
 @router.websocket("/ws/{room_code}")
@@ -221,7 +231,7 @@ async def websocket_endpoint(
     # Validate room existence first
     db = SessionLocal()
     try:
-        room = db.query(Room).filter(Room.code == room_code.lower()).first()
+        room = db.query(Room).filter(Room.code == room_code).first()
         if room is None:
             await websocket.close(code=4404, reason="Room not found")
             return

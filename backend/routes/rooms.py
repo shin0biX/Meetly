@@ -1,6 +1,7 @@
 import secrets
+import re
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, Optional
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/rooms", tags=["rooms"])
 
 class RoomCreate(BaseModel):
     name: str = Field(default="", max_length=60)
-    code: Optional[str] = Field(default=None, max_length=20)  # if omitted, generate one
+    code: Optional[str] = Field(default=None, max_length=64)  # if omitted, generate one
 
 
 class RoomOut(BaseModel):
@@ -39,7 +40,11 @@ class MessageOut(BaseModel):
 
 
 def generate_room_code() -> str:
-    return secrets.token_hex(3)  # 6-char hex code
+    """Generate a high-entropy, URL-safe room access code (128 bits)."""
+    return secrets.token_urlsafe(16)
+
+
+ROOM_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 # Creating a room REQUIRES being logged in
@@ -53,8 +58,8 @@ def create_room(
     code = (request.code or "").strip().lower()
     if not code:
         code = generate_room_code()
-    if not code.isalnum():
-        raise HTTPException(status_code=400, detail="Room code must be letters/numbers only")
+    if not ROOM_CODE_PATTERN.fullmatch(code):
+        raise HTTPException(status_code=400, detail="Room code may contain only letters, numbers, hyphens, and underscores")
     if db.query(Room).filter(Room.code == code).first():
         raise HTTPException(status_code=400, detail="Room code already in use")
 
@@ -108,7 +113,7 @@ def get_room(
     user: Annotated[Optional[User], Depends(get_optional_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
-    room = db.query(Room).filter(Room.code == code.lower()).first()
+    room = db.query(Room).filter(Room.code == code).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     
@@ -130,17 +135,20 @@ def room_messages(
     code: str,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Optional[User], Depends(get_optional_user)],
-    guest_token: Optional[str] = Query(default=None, min_length=1, max_length=4096),
+    authorization: Optional[str] = Header(default=None),
     limit: int = 50,
 ):
-    room = db.query(Room).filter(Room.code == code.lower()).first()
+    room = db.query(Room).filter(Room.code == code).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
 
     # Guests must prove identity with a signed room-bound credential. A raw
     # guest ID is never accepted as authorization.
     verified_guest_id = None
-    if user is None and guest_token:
+    if user is None and authorization:
+        scheme, _, guest_token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not guest_token:
+            raise HTTPException(status_code=401, detail="Invalid guest authentication")
         claims = verify_guest_token(guest_token, code)
         if claims is None:
             raise HTTPException(status_code=401, detail="Invalid guest token")

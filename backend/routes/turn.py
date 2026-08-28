@@ -57,7 +57,7 @@ def issue_turn_ticket(room_code: str) -> str:
         for key, (_, expiry) in list(_turn_tickets.items()):
             if expiry <= now:
                 _turn_tickets.pop(key, None)
-        _turn_tickets[ticket] = (room_code.lower(), expires_at)
+        _turn_tickets[ticket] = (room_code, expires_at)
     return ticket
 
 
@@ -77,7 +77,7 @@ def _validate_ticket(ticket: str, room_code: str) -> bool:
         if expiry <= time.time():
             _turn_tickets.pop(ticket, None)
             return False
-        return secrets.compare_digest(ticket_room, room_code.lower())
+        return secrets.compare_digest(ticket_room, room_code)
 
 
 @router.get("/credentials", response_model=TurnCredentials)
