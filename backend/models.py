@@ -51,6 +51,9 @@ class ChatMessage(Base):
     # name instead. Weak (names aren't unique) but there's no other stable
     # guest identity across reconnects.
     recipient_name = Column(String, nullable=True)
+    # Stable server-assigned identities for guests; never authorize by display name.
+    sender_guest_id = Column(String(64), nullable=True)
+    recipient_guest_id = Column(String(64), nullable=True)
 
     room = relationship("Room", back_populates="messages")
     user = relationship("User", back_populates="messages", foreign_keys=[user_id])

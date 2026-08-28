@@ -83,6 +83,12 @@ def run_migrations():
         if "recipient_name" not in cols3:
             conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_name VARCHAR"))
             print("migration: added chat_messages.recipient_name")
+        if "sender_guest_id" not in cols3:
+            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN sender_guest_id VARCHAR(64)"))
+            print("migration: added chat_messages.sender_guest_id")
+        if "recipient_guest_id" not in cols3:
+            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_guest_id VARCHAR(64)"))
+            print("migration: added chat_messages.recipient_guest_id")
 
 
 def get_db():

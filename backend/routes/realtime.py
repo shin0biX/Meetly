@@ -18,6 +18,9 @@ from jose import JWTError, jwt
 from database import SessionLocal
 from models import User, Room, ChatMessage
 from config import SECRET_KEY, ALGORITHM
+
+GUEST_TOKEN_TYPE = "guest_access"
+GUEST_TOKEN_HOURS = 24
 from rate_limit import ConnectionRateLimiter
 
 router = APIRouter(tags=["realtime"])
@@ -37,11 +40,12 @@ _total_connections = 0
 
 
 class RoomMember:
-    def __init__(self, client_id: str, name: str, websocket: WebSocket, user_id: Optional[int] = None, is_owner: bool = False, is_original_owner: bool = False):
+    def __init__(self, client_id: str, name: str, websocket: WebSocket, user_id: Optional[int] = None, guest_id: Optional[str] = None, is_owner: bool = False, is_original_owner: bool = False):
         self.client_id = client_id
         self.name = name
         self.websocket = websocket
         self.user_id = user_id
+        self.guest_id = guest_id
         # is_owner: currently has host rights (owner OR promoted). Can be toggled at runtime.
         self.is_owner = is_owner
         # is_original_owner: the room creator (room.owner_id). Never demotable; sole host-manager.
@@ -102,6 +106,7 @@ def persist_chat(
     is_private: bool = False,
     recipient_user_id: Optional[int] = None,
     recipient_name: Optional[str] = None,
+    sender_guest_id: Optional[str] = None, recipient_guest_id: Optional[str] = None,
 ) -> None:
     """Persist a chat message. Never raises: a storage failure must NOT take
     down the WebSocket connection (chat still broadcasts even if saving fails)."""
@@ -110,7 +115,7 @@ def persist_chat(
             room_id=room_id, user_id=user_id, sender_name=sender_name, text=text,
             is_private=is_private,
             recipient_user_id=recipient_user_id,
-            recipient_name=recipient_name,
+            recipient_name=recipient_name, sender_guest_id=sender_guest_id, recipient_guest_id=recipient_guest_id,
         )
         db.add(msg)
         db.commit()
@@ -122,7 +127,7 @@ def persist_chat(
         print(f"[meetly] chat persist failed (non-fatal): {e}")
 
 
-def _persist_chat_sync(room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name) -> None:
+def _persist_chat_sync(room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name, sender_guest_id=None, recipient_guest_id=None) -> None:
     """Opens its own session and persists -- runs in a worker thread via
     asyncio.to_thread so the blocking sqlite3 commit() call never blocks the
     event loop that every other connection/room depends on. Under a message
@@ -130,7 +135,7 @@ def _persist_chat_sync(room_id, user_id, sender_name, text, is_private, recipien
     one room) becoming unresponsive -- see the audit."""
     db = SessionLocal()
     try:
-        persist_chat(db, room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name)
+        persist_chat(db, room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name, sender_guest_id, recipient_guest_id)
     finally:
         db.close()
 
@@ -165,8 +170,11 @@ async def websocket_endpoint(
 
     token = data.get("token")
     guest_name = (data.get("guest_name") or "").strip()
+    guest_token = data.get("guest_token")
 
     user_id: Optional[int] = None
+    guest_id: Optional[str] = None
+    issued_guest_token: Optional[str] = None
     display_name: str = ""
     is_owner: bool = False
 
@@ -195,15 +203,38 @@ async def websocket_endpoint(
             except JWTError:
                 pass  # Fall back to guest if token is invalid or expired
 
-        # If not authenticated via token, use guest credentials
+        # If not authenticated as a user, verify an existing guest credential or
+        # create a new server-assigned guest identity. Display names are never identity.
         if not user_id:
-            display_name = guest_name[:30] if guest_name else f"Guest_{secrets.token_hex(2)}"
+            if guest_token:
+                try:
+                    gp = jwt.decode(guest_token, SECRET_KEY, algorithms=[ALGORITHM])
+                    if gp.get("typ") == GUEST_TOKEN_TYPE and gp.get("sub") == "guest" and gp.get("room") == room_code.lower() and gp.get("gid"):
+                        guest_id = str(gp["gid"])
+                        display_name = str(gp.get("display") or "Guest")[:30]
+                    else:
+                        raise JWTError("invalid guest token")
+                except JWTError:
+                    await websocket.close(code=4401, reason="Invalid guest token")
+                    return
+            else:
+                guest_id = secrets.token_hex(16)
+                display_name = guest_name[:30] if guest_name else f"Guest_{secrets.token_hex(2)}"
+                issued_guest_token = jwt.encode({"sub":"guest","typ":GUEST_TOKEN_TYPE,"gid":guest_id,"room":room_code.lower(),"display":display_name,"exp":datetime.now(timezone.utc)+timedelta(hours=GUEST_TOKEN_HOURS)}, SECRET_KEY, algorithm=ALGORITHM)
             is_owner = False
 
     finally:
         db.close()
 
     room_members = _room(room_code)
+
+    # A guest credential represents a single anonymous participant. Reject a
+    # second simultaneous connection using the same credential; this prevents
+    # a copied/stolen browser credential from silently becoming the same guest
+    # while the original participant is still connected.
+    if guest_id and any(m.guest_id == guest_id for m in room_members.values()):
+        await websocket.close(code=4409, reason="Guest identity already connected")
+        return
 
     global _total_connections
     if _total_connections >= MAX_TOTAL_CONNECTIONS:
@@ -219,6 +250,7 @@ async def websocket_endpoint(
         name=display_name,
         websocket=websocket,
         user_id=user_id,
+        guest_id=guest_id,
         is_owner=is_owner,
         is_original_owner=is_owner,
     )
@@ -251,6 +283,7 @@ async def websocket_endpoint(
             "peers": peers,
             "spotlight": SPOTLIGHTS.get(room_code),
             "meeting_ticket": meeting_ticket,
+            "guest_token": issued_guest_token,
         })
 
         # Broadcast newcomer to existing peers
@@ -306,7 +339,7 @@ async def websocket_endpoint(
                         continue
                     await asyncio.to_thread(
                         _persist_chat_sync, room_id, member.user_id, member.name, text,
-                        True, target_member.user_id, target_member.name,
+                        True, target_member.user_id, target_member.name, member.guest_id, target_member.guest_id,
                     )
                     await target_member.send({
                         "type": "chat", "from": client_id, "name": member.name,
@@ -316,7 +349,7 @@ async def websocket_endpoint(
                 else:
                     await asyncio.to_thread(
                         _persist_chat_sync, room_id, member.user_id, member.name, text,
-                        False, None, None,
+                        False, None, None, member.guest_id, None,
                     )
                     await broadcast(room_code, {
                         "type": "chat", "from": client_id,

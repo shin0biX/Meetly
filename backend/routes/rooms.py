@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Room, ChatMessage
 from routes.auth import get_current_user, get_optional_user
+from config import SECRET_KEY, ALGORITHM
+from jose import JWTError, jwt
 from rate_limit import rate_limit_check
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -35,6 +37,7 @@ class MessageOut(BaseModel):
     created_at: Optional[datetime] = None
     is_private: bool = False
     to_name: Optional[str] = None  # recipient display name, only set for DMs
+    is_self: bool = False  # computed from verified viewer identity
 
 
 def generate_room_code() -> str:
@@ -112,7 +115,7 @@ def get_room(
     room = db.query(Room).filter(Room.code == code.lower()).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-    
+
     is_owner = bool(user and user.id == room.owner_id)
     return RoomOut(
         id=room.id,
@@ -133,12 +136,22 @@ def room_messages(
     user: Annotated[Optional[User], Depends(get_optional_user)],
     http_request: Request,
     guest_name: Optional[str] = None,
+    guest_token: Optional[str] = None,
     limit: int = 50,
 ):
     rate_limit_check(http_request, "room_messages", window=60, max_requests=60)
     room = db.query(Room).filter(Room.code == code.lower()).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+
+    guest_id = None
+    if user is None and guest_token:
+        try:
+            payload = jwt.decode(guest_token, SECRET_KEY, algorithms=[ALGORITHM])
+            if payload.get("typ") == "guest_access" and payload.get("sub") == "guest" and payload.get("room") == room.code and payload.get("gid"):
+                guest_id = str(payload["gid"])
+        except JWTError:
+            guest_id = None
 
     # Over-fetch a bit since private messages the viewer can't see get
     # dropped below, and we still want up to `limit` visible messages.
@@ -161,10 +174,8 @@ def room_messages(
             if user is not None:
                 if m.user_id == user.id or m.recipient_user_id == user.id:
                     visible = True
-            if not visible and guest_name:
-                sender_label = m.sender_name or ""
-                recipient_label = m.recipient_name or ""
-                if guest_name in (sender_label, recipient_label):
+            if not visible and guest_id:
+                if m.sender_guest_id == guest_id or m.recipient_guest_id == guest_id:
                     visible = True
             if not visible:
                 continue
@@ -175,6 +186,12 @@ def room_messages(
         ts = m.created_at
         if ts is not None and ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
+        # Ownership is an authorization concept, not a display-name comparison.
+        # Compute it from the authenticated user's ID or verified guest ID.
+        is_self = (
+            (user is not None and m.user_id == user.id)
+            or (guest_id is not None and m.sender_guest_id == guest_id)
+        )
         result.append(
             MessageOut(
                 id=m.id,
@@ -183,6 +200,7 @@ def room_messages(
                 created_at=ts,
                 is_private=bool(m.is_private),
                 to_name=m.recipient_name if m.is_private else None,
+                is_self=is_self,
             )
         )
         if len(result) >= min(limit, 200):

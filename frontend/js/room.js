@@ -20,6 +20,20 @@
 
     const token = API.getToken();
     const user = API.getUser();
+
+    // A guest credential represents one anonymous participant, not a display
+    // name. sessionStorage can be copied when a browser tab is duplicated, so
+    // never automatically reuse a copied credential for a fresh navigation to
+    // a room. Preserve it only for an actual page reload/reconnect in the same
+    // tab, which is what allows a guest to retain their identity after refresh.
+    const navEntry = performance.getEntriesByType('navigation')[0];
+    const navigationType = navEntry ? navEntry.type : 'navigate';
+    if (!token && urlParams.has('room') && navigationType !== 'reload') {
+        sessionStorage.removeItem('meetly_guest_token');
+        sessionStorage.removeItem('meetly_guest_name');
+        sessionStorage.removeItem('meetly_meeting_ticket');
+    }
+
     let name = (token && user && user.username) ? user.username : (sessionStorage.getItem('meetly_guest_name') || '');
     let meetingTicket = sessionStorage.getItem('meetly_meeting_ticket') || null;
 
@@ -559,6 +573,7 @@
             case 'joined':
                 state.myId = data.id;
                 if (data.meeting_ticket) { meetingTicket = data.meeting_ticket; sessionStorage.setItem('meetly_meeting_ticket', meetingTicket); }
+                if (data.guest_token) sessionStorage.setItem('meetly_guest_token', data.guest_token);
                 state.isOwner = !!data.is_owner;
                 state.hostSpotlightId = data.spotlight || null;
 
@@ -1144,7 +1159,8 @@
             if (token) {
                 state.ws.send(JSON.stringify({ type: 'auth', token }));
             } else {
-                state.ws.send(JSON.stringify({ type: 'auth', guest_name: name }));
+                const guestToken = sessionStorage.getItem('meetly_guest_token');
+                state.ws.send(JSON.stringify(guestToken ? { type: 'auth', guest_token: guestToken } : { type: 'auth', guest_name: name }));
             }
         };
 
@@ -1316,12 +1332,13 @@
         try {
             // Guests have no account, so pass their display name to let the
             // server include DMs sent to/from them (see rooms.py filtering).
-            const qs = (!token && name) ? `?guest_name=${encodeURIComponent(name)}` : '';
+            const guestToken = sessionStorage.getItem('meetly_guest_token');
+            const qs = (!token && guestToken) ? `?guest_token=${encodeURIComponent(guestToken)}` : '';
             const msgs = await apiFetch(`/rooms/${room}/messages${qs}`);
             if (msgs && msgs.length > 0) {
                 chatMessages.innerHTML = '';
                 msgs.forEach(m => {
-                    const isSelf = m.username === name;
+                    const isSelf = m.is_self === true;
                     const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
                     if (m.is_private) {
                         const label = isSelf ? `to ${m.to_name || 'someone'}` : 'Private';
