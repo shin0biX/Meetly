@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Room, ChatMessage
 from routes.auth import get_current_user, get_optional_user
+from routes.realtime import verify_guest_token
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -129,12 +130,21 @@ def room_messages(
     code: str,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Optional[User], Depends(get_optional_user)],
-    guest_id: Optional[str] = Query(default=None, min_length=1, max_length=64),
+    guest_token: Optional[str] = Query(default=None, min_length=1, max_length=4096),
     limit: int = 50,
 ):
     room = db.query(Room).filter(Room.code == code.lower()).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
+
+    # Guests must prove identity with a signed room-bound credential. A raw
+    # guest ID is never accepted as authorization.
+    verified_guest_id = None
+    if user is None and guest_token:
+        claims = verify_guest_token(guest_token, code)
+        if claims is None:
+            raise HTTPException(status_code=401, detail="Invalid guest token")
+        verified_guest_id = claims["gid"]
 
     # Over-fetch a bit since private messages the viewer can't see get
     # dropped below, and we still want up to `limit` visible messages.
@@ -157,8 +167,8 @@ def room_messages(
             if user is not None:
                 if m.user_id == user.id or m.recipient_user_id == user.id:
                     visible = True
-            if not visible and guest_id:
-                if guest_id in (m.sender_guest_id, m.recipient_guest_id):
+            if not visible and verified_guest_id:
+                if verified_guest_id in (m.sender_guest_id, m.recipient_guest_id):
                     visible = True
             if not visible:
                 continue
@@ -179,7 +189,7 @@ def room_messages(
                 to_name=m.recipient_name if m.is_private else None,
                 is_self=(
                     (user is not None and m.user_id == user.id)
-                    or (user is None and guest_id is not None and m.sender_guest_id == guest_id)
+                    or (user is None and verified_guest_id is not None and m.sender_guest_id == verified_guest_id)
                 ),
             )
         )

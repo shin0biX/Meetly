@@ -22,13 +22,9 @@
     let name = (token && user && user.username) ? user.username : (sessionStorage.getItem('meetly_guest_name') || '');
     // Display names are not identities. Guests get a random ID that survives
     // refreshes within this browser session and is used only for authorization.
-    let guestId = null;
+    let guestToken = null;
     if (!token) {
-        guestId = sessionStorage.getItem('meetly_guest_id');
-        if (!guestId) {
-            guestId = crypto.randomUUID();
-            sessionStorage.setItem('meetly_guest_id', guestId);
-        }
+        guestToken = sessionStorage.getItem('meetly_guest_token');
     }
 
     const CONFIG = {
@@ -1076,7 +1072,7 @@
             if (token) {
                 state.ws.send(JSON.stringify({ type: 'auth', token }));
             } else {
-                state.ws.send(JSON.stringify({ type: 'auth', guest_name: name, guest_id: guestId }));
+                state.ws.send(JSON.stringify({ type: 'auth', guest_name: name, ...(guestToken ? { guest_token: guestToken } : {}) }));
             }
         };
 
@@ -1214,7 +1210,7 @@
         try {
             // Guests have no account, so pass their display name to let the
             // server include DMs sent to/from them (see rooms.py filtering).
-            const qs = (!token && guestId) ? `?guest_id=${encodeURIComponent(guestId)}` : '';
+            const qs = (!token && guestToken) ? `?guest_token=${encodeURIComponent(guestToken)}` : '';
             const msgs = await apiFetch(`/rooms/${room}/messages${qs}`);
             if (msgs && msgs.length > 0) {
                 chatMessages.innerHTML = '';
