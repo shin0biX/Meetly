@@ -24,7 +24,7 @@
     // refreshes within this browser session and is used only for authorization.
     let guestToken = null;
     if (!token) {
-        guestToken = sessionStorage.getItem('meetly_guest_token');
+        guestToken = sessionStorage.getItem(`meetly_guest_token_${room}`) || sessionStorage.getItem('meetly_guest_token');
     }
 
     const CONFIG = {
@@ -456,6 +456,15 @@
         switch (data.type) {
             case 'joined':
                 state.myId = data.id;
+                // Persist the server-issued, room-bound guest credential so a
+                // page refresh can reconnect as the same guest and retrieve
+                // private chat history. Never persist a client-generated ID.
+                if (!token && data.guest_token) {
+                    guestToken = data.guest_token;
+                    sessionStorage.setItem(`meetly_guest_token_${room}`, guestToken);
+                    // Keep the legacy key in sync for existing code paths during upgrade.
+                    sessionStorage.setItem('meetly_guest_token', guestToken);
+                }
                 state.isOwner = !!data.is_owner;
                 state.hostSpotlightId = data.spotlight || null;
 

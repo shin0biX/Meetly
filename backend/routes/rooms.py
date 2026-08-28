@@ -1,9 +1,10 @@
 import secrets
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, Optional
+from collections import defaultdict, deque
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,6 +13,28 @@ from routes.auth import get_current_user, get_optional_user
 from routes.realtime import verify_guest_token
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
+
+# Lightweight per-user room creation limiter. This is intentionally separate
+# from authentication rate limiting because room creation is an authenticated
+# resource-consuming operation. For multi-instance deployments this should be
+# moved to a shared store such as Redis.
+ROOM_CREATION_LIMIT = 10
+ROOM_CREATION_WINDOW = timedelta(hours=1)
+_room_creation_attempts: dict[int, deque[datetime]] = defaultdict(deque)
+
+
+def check_room_creation_rate_limit(user_id: int) -> None:
+    now = datetime.now(timezone.utc)
+    attempts = _room_creation_attempts[user_id]
+    cutoff = now - ROOM_CREATION_WINDOW
+    while attempts and attempts[0] <= cutoff:
+        attempts.popleft()
+    if len(attempts) >= ROOM_CREATION_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="Room creation limit exceeded. Please try again later.",
+        )
+    attempts.append(now)
 
 
 class RoomCreate(BaseModel):
@@ -54,6 +77,7 @@ def create_room(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
+    check_room_creation_rate_limit(user.id)
     name = (request.name or "").strip() or f"{user.username}'s room"
     code = (request.code or "").strip().lower()
     if not code:
