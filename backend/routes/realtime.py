@@ -6,9 +6,11 @@ Supports both authenticated users and guests:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 from typing import Dict, Optional
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
@@ -16,8 +18,22 @@ from jose import JWTError, jwt
 from database import SessionLocal
 from models import User, Room, ChatMessage
 from config import SECRET_KEY, ALGORITHM
+from rate_limit import ConnectionRateLimiter
 
 router = APIRouter(tags=["realtime"])
+
+# Bounds that exist purely to make the room unable to take the whole server
+# down: without these, one connection flooding messages (or a script opening
+# many connections) can pin the event loop and make the server unresponsive
+# to everyone, not just that room -- reproduced and confirmed in testing.
+MAX_ROOM_SIZE = 50          # participants per room
+MAX_TOTAL_CONNECTIONS = 300  # concurrent WS connections, server-wide
+MAX_WS_MESSAGE_BYTES = 4096  # a legitimate message (chat/reaction/etc) never needs more
+MSG_RATE_PER_SEC = 15        # sustained messages/sec a single connection may send
+MSG_BURST = 30               # short burst allowance on top of the sustained rate
+MAX_VIOLATIONS_BEFORE_KICK = 50  # disconnect a connection that keeps ignoring its limit
+
+_total_connections = 0
 
 
 class RoomMember:
@@ -106,6 +122,19 @@ def persist_chat(
         print(f"[meetly] chat persist failed (non-fatal): {e}")
 
 
+def _persist_chat_sync(room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name) -> None:
+    """Opens its own session and persists -- runs in a worker thread via
+    asyncio.to_thread so the blocking sqlite3 commit() call never blocks the
+    event loop that every other connection/room depends on. Under a message
+    flood this was the single biggest factor in the whole server (not just
+    one room) becoming unresponsive -- see the audit."""
+    db = SessionLocal()
+    try:
+        persist_chat(db, room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name)
+    finally:
+        db.close()
+
+
 @router.get("/rooms/{room_code}/peers", tags=["rooms"])
 def get_peers(room_code: str):
     """Return the current number of connected peers in a room."""
@@ -122,6 +151,9 @@ async def websocket_endpoint(
     # 1) Wait for auth/join message
     try:
         raw = await websocket.receive_text()
+        if len(raw) > MAX_WS_MESSAGE_BYTES:
+            await websocket.close(code=4413, reason="Message too large")
+            return
         data = json.loads(raw)
     except Exception:
         await websocket.close(code=4401, reason="Expected auth message")
@@ -173,6 +205,14 @@ async def websocket_endpoint(
 
     room_members = _room(room_code)
 
+    global _total_connections
+    if _total_connections >= MAX_TOTAL_CONNECTIONS:
+        await websocket.close(code=4429, reason="Server is at capacity, please try again shortly")
+        return
+    if len(room_members) >= MAX_ROOM_SIZE:
+        await websocket.close(code=4429, reason="This room is full")
+        return
+
     client_id = secrets.token_hex(8)
     member = RoomMember(
         client_id=client_id,
@@ -183,6 +223,8 @@ async def websocket_endpoint(
         is_original_owner=is_owner,
     )
     room_members[client_id] = member
+    _total_connections += 1
+    limiter = ConnectionRateLimiter(rate_per_sec=MSG_RATE_PER_SEC, burst=MSG_BURST)
 
     try:
         # Notify newcomer with self info & peer roster
@@ -194,6 +236,13 @@ async def websocket_endpoint(
             for pid, m in room_members.items()
             if pid != client_id
         ]
+        meeting_ticket = jwt.encode({
+            "typ": "meetly_meeting_ticket",
+            "room": room_code.lower(),
+            "cid": client_id,
+            "name": display_name[:60],
+            "exp": datetime.now(timezone.utc) + timedelta(hours=6),
+        }, SECRET_KEY, algorithm=ALGORITHM)
         await member.send({
             "type": "joined",
             "id": client_id,
@@ -201,6 +250,7 @@ async def websocket_endpoint(
             "is_owner": is_owner,
             "peers": peers,
             "spotlight": SPOTLIGHTS.get(room_code),
+            "meeting_ticket": meeting_ticket,
         })
 
         # Broadcast newcomer to existing peers
@@ -217,6 +267,24 @@ async def websocket_endpoint(
 
         while True:
             raw = await websocket.receive_text()
+
+            if len(raw) > MAX_WS_MESSAGE_BYTES:
+                limiter.violations += 1
+                if limiter.violations > MAX_VIOLATIONS_BEFORE_KICK:
+                    await websocket.close(code=4413, reason="Too many oversized messages")
+                    return
+                continue
+
+            if not limiter.allow():
+                # Silently drop -- an occasional burst is normal (fast
+                # typing, a flurry of reactions); this only bites someone
+                # sending far faster than any real UI could. If they keep
+                # hammering past all reasonable doubt, disconnect them.
+                if limiter.violations > MAX_VIOLATIONS_BEFORE_KICK:
+                    await websocket.close(code=4429, reason="Too many messages, disconnected")
+                    return
+                continue
+
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
@@ -236,27 +304,20 @@ async def websocket_endpoint(
                     target_member = room_members.get(dm_target_id)
                     if not target_member or dm_target_id == client_id:
                         continue
-                    db2 = SessionLocal()
-                    try:
-                        persist_chat(
-                            db2, room_id, member.user_id, member.name, text,
-                            is_private=True,
-                            recipient_user_id=target_member.user_id,
-                            recipient_name=target_member.name,
-                        )
-                    finally:
-                        db2.close()
+                    await asyncio.to_thread(
+                        _persist_chat_sync, room_id, member.user_id, member.name, text,
+                        True, target_member.user_id, target_member.name,
+                    )
                     await target_member.send({
                         "type": "chat", "from": client_id, "name": member.name,
                         "text": text, "private": True,
                         "to": dm_target_id, "to_name": target_member.name,
                     })
                 else:
-                    db2 = SessionLocal()
-                    try:
-                        persist_chat(db2, room_id, member.user_id, member.name, text)
-                    finally:
-                        db2.close()
+                    await asyncio.to_thread(
+                        _persist_chat_sync, room_id, member.user_id, member.name, text,
+                        False, None, None,
+                    )
                     await broadcast(room_code, {
                         "type": "chat", "from": client_id,
                         "name": member.name, "text": text, "private": False,
@@ -385,6 +446,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         pass
     finally:
+        _total_connections -= 1
         was_original_owner = member.is_original_owner
         room_members.pop(client_id, None)
 

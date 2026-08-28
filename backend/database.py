@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, text, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from pathlib import Path
 
@@ -10,6 +10,21 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """WAL mode lets readers and writers work concurrently instead of
+    blocking each other on every commit (default SQLite journal mode
+    serializes them) -- meaningfully softens the impact of any burst of
+    writes, on top of the WebSocket-level rate limiting that prevents such
+    a burst from happening in the first place. busy_timeout makes a
+    still-contended writer retry briefly instead of raising "database is
+    locked" errors under momentary load."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
 
 
 def run_migrations():

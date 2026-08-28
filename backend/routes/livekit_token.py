@@ -19,9 +19,17 @@ import datetime
 import os
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 from livekit.api import AccessToken, VideoGrants
 from pydantic import BaseModel
+
+from rate_limit import rate_limit_check
+from database import get_db
+from models import Room
+from config import SECRET_KEY, ALGORITHM
 
 router = APIRouter(prefix="/livekit", tags=["livekit"])
 
@@ -51,34 +59,54 @@ def _load_env() -> None:
         pass
 
 
+security = HTTPBearer(auto_error=False)
+
+
 @router.get("/token", response_model=LiveKitConnectionInfo)
 def get_livekit_token(
     room: str,
-    identity: str = Query(..., description="Must equal the FastAPI WS 'joined' id for this session"),
-    name: str = Query(..., description="Display name to show in LiveKit (cosmetic only)"),
+    http_request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: Session = Depends(get_db),
 ):
+    """Issue a media token only to a participant authenticated by Meetly.
+
+    The client-supplied identity is deliberately not accepted: identity and room
+    membership are derived from a short-lived, server-signed meeting ticket
+    issued after the WebSocket join succeeds.
+    """
+    rate_limit_check(http_request, "livekit_token", window=60, max_requests=30)
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Meeting authentication required")
+    room_code = room.lower().strip()
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("typ") != "meetly_meeting_ticket":
+            raise HTTPException(status_code=401, detail="Invalid meeting credentials")
+        if payload.get("room") != room_code:
+            raise HTTPException(status_code=403, detail="Meeting ticket is not valid for this room")
+        identity = payload.get("cid")
+        if not isinstance(identity, str) or not _IDENTITY_RE.match(identity):
+            raise HTTPException(status_code=401, detail="Invalid meeting credentials")
+    except HTTPException:
+        raise
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired meeting credentials")
+
+    if db.query(Room).filter(Room.code == room_code).first() is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+
     _load_env()
     if not (LIVEKIT_API_KEY and LIVEKIT_API_SECRET and LIVEKIT_URL):
-        raise HTTPException(
-            status_code=503,
-            detail="LiveKit is not configured on this server (missing LIVEKIT_API_KEY/SECRET/URL).",
-        )
-    if not _IDENTITY_RE.match(identity):
-        raise HTTPException(status_code=400, detail="Invalid identity")
+        raise HTTPException(status_code=503, detail="LiveKit is not configured on this server (missing LIVEKIT_API_KEY/SECRET/URL).")
 
-    grants = VideoGrants(
-        room_join=True,
-        room=room.lower().strip(),
-        can_publish=True,
-        can_subscribe=True,
-        can_publish_data=True,
-    )
-    token = (
-        AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+    display_name = payload.get("name") if isinstance(payload.get("name"), str) else identity
+    grants = VideoGrants(room_join=True, room=room_code, can_publish=True, can_subscribe=True, can_publish_data=True)
+    token = (AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
         .with_identity(identity)
-        .with_name(name.strip()[:60] or identity)
+        .with_name(display_name.strip()[:60] or identity)
         .with_grants(grants)
         .with_ttl(datetime.timedelta(hours=6))
-        .to_jwt()
-    )
+        .to_jwt())
     return LiveKitConnectionInfo(url=LIVEKIT_URL, token=token)
+

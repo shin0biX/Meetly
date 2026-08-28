@@ -1,5 +1,4 @@
 import time
-from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -12,36 +11,13 @@ from jose import JWTError, jwt
 from database import get_db
 from models import User
 from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from rate_limit import rate_limit_check
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
 oauth2_bearer_optional = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
-
-
-# ---------- In-memory rate limiter (IP-based sliding window) ----------
-_rate_store: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT_WINDOW = 60  # seconds
-RATE_LIMIT_MAX_REQUESTS = 15  # max attempts per window
-
-
-def _rate_limit_check(request: Request) -> None:
-    """Raise 429 if the client IP has exceeded the rate limit."""
-    client_ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW
-
-    # Prune old entries
-    timestamps = _rate_store[client_ip]
-    _rate_store[client_ip] = [t for t in timestamps if t > window_start]
-
-    if len(_rate_store[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please try again later.",
-        )
-    _rate_store[client_ip].append(now)
 
 
 class RegisterRequest(BaseModel):
@@ -119,7 +95,7 @@ def register(
     db: Annotated[Session, Depends(get_db)],
     http_request: Request,
 ):
-    _rate_limit_check(http_request)
+    rate_limit_check(http_request, "register", window=60, max_requests=15)
 
     if db.query(User).filter(User.username == request.username).first():
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -144,7 +120,7 @@ def login(
     db: Annotated[Session, Depends(get_db)],
     request: Request,
 ):
-    _rate_limit_check(request)
+    rate_limit_check(request, "token", window=60, max_requests=15)
 
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:

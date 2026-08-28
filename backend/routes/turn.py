@@ -1,7 +1,9 @@
 import hmac, hashlib, os, time, base64
 from datetime import datetime, timezone
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
+
+from rate_limit import rate_limit_check
 
 router = APIRouter(prefix="/turn", tags=["turn"])
 
@@ -32,8 +34,9 @@ def _load_env() -> None:
 
 
 @router.get("/credentials", response_model=TurnCredentials)
-def get_turn_credentials():
+def get_turn_credentials(http_request: Request):
     """Mint short-lived TURN credentials for both logged-in users and guests."""
+    rate_limit_check(http_request, "turn_credentials", window=60, max_requests=30)
     _load_env()
     if not TURN_SECRET:
         return {

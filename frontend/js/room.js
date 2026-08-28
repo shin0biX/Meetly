@@ -21,6 +21,7 @@
     const token = API.getToken();
     const user = API.getUser();
     let name = (token && user && user.username) ? user.username : (sessionStorage.getItem('meetly_guest_name') || '');
+    let meetingTicket = sessionStorage.getItem('meetly_meeting_ticket') || null;
 
     const state = {
         ws: null,
@@ -157,7 +158,8 @@
             throw new Error('Video library failed to load. Check your connection and refresh.');
         }
 
-        const info = await apiFetch(`/livekit/token?room=${encodeURIComponent(room)}&identity=${encodeURIComponent(state.myId)}&name=${encodeURIComponent(name)}`);
+        if (!meetingTicket) throw new Error('Meeting authentication is not ready');
+        const info = await apiFetch(`/livekit/token?room=${encodeURIComponent(room)}`, { headers: { Authorization: `Bearer ${meetingTicket}` } });
         if (!info || !info.url || !info.token) {
             throw new Error('Could not get a media session from the server.');
         }
@@ -556,6 +558,7 @@
         switch (data.type) {
             case 'joined':
                 state.myId = data.id;
+                if (data.meeting_ticket) { meetingTicket = data.meeting_ticket; sessionStorage.setItem('meetly_meeting_ticket', meetingTicket); }
                 state.isOwner = !!data.is_owner;
                 state.hostSpotlightId = data.spotlight || null;
 

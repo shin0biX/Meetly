@@ -1,6 +1,6 @@
 import secrets
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated, Optional
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Room, ChatMessage
 from routes.auth import get_current_user, get_optional_user
+from rate_limit import rate_limit_check
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -46,7 +47,9 @@ def create_room(
     request: RoomCreate,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
+    http_request: Request,
 ):
+    rate_limit_check(http_request, "create_room", window=60, max_requests=20)
     name = (request.name or "").strip() or f"{user.username}'s room"
     code = (request.code or "").strip().lower()
     if not code:
@@ -128,9 +131,11 @@ def room_messages(
     code: str,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[Optional[User], Depends(get_optional_user)],
+    http_request: Request,
     guest_name: Optional[str] = None,
     limit: int = 50,
 ):
+    rate_limit_check(http_request, "room_messages", window=60, max_requests=60)
     room = db.query(Room).filter(Room.code == code.lower()).first()
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")

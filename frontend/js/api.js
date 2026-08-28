@@ -27,7 +27,7 @@ const API = {
 async function apiFetch(endpoint, options = {}) {
     const headers = { ...(options.headers || {}) };
     const token = API.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token && !headers['Authorization']) headers['Authorization'] = `Bearer ${token}`;
     if (options.body && !(options.body instanceof FormData) && !(options.body instanceof URLSearchParams)) {
         headers['Content-Type'] = 'application/json';
     }
