@@ -302,6 +302,7 @@
                 const body = new URLSearchParams({ username, password });
                 const res = await apiFetch('/auth/token', { method: 'POST', body });
                 API.setToken(res.access_token);
+                if (res.refresh_token) API.setRefreshToken(res.refresh_token);
                 API.setUser({ username: res.username });
                 showToast('Welcome back, ' + res.username + '!', 'success');
                 const urlParams = new URLSearchParams(window.location.search);
@@ -337,6 +338,7 @@
                 const body = new URLSearchParams({ username, password });
                 const res = await apiFetch('/auth/token', { method: 'POST', body });
                 API.setToken(res.access_token);
+                if (res.refresh_token) API.setRefreshToken(res.refresh_token);
                 API.setUser({ username: res.username });
                 showToast('Account created successfully!', 'success');
                 const urlParams = new URLSearchParams(window.location.search);

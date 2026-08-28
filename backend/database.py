@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, inspect, text, event
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from pathlib import Path
 
@@ -12,25 +12,18 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@event.listens_for(engine, "connect")
-def _set_sqlite_pragmas(dbapi_connection, connection_record):
-    """WAL mode lets readers and writers work concurrently instead of
-    blocking each other on every commit (default SQLite journal mode
-    serializes them) -- meaningfully softens the impact of any burst of
-    writes, on top of the WebSocket-level rate limiting that prevents such
-    a burst from happening in the first place. busy_timeout makes a
-    still-contended writer retry briefly instead of raising "database is
-    locked" errors under momentary load."""
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
-    cursor.close()
-
-
 def run_migrations():
     """Lightweight migrations for schema changes that `create_all` can't apply
     to existing tables. Additive columns and nullable-rebuilds live here."""
     insp = inspect(engine)
+    # User token version is additive and invalidates all existing JWTs when bumped.
+    if "users" in insp.get_table_names():
+        user_cols = {c["name"] for c in insp.get_columns("users")}
+        if "token_version" not in user_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1"))
+            print("migration: added users.token_version")
+
     if "chat_messages" not in insp.get_table_names():
         return
 
@@ -83,11 +76,17 @@ def run_migrations():
         if "recipient_name" not in cols3:
             conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_name VARCHAR"))
             print("migration: added chat_messages.recipient_name")
-        if "sender_guest_id" not in cols3:
-            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN sender_guest_id VARCHAR(64)"))
+
+        # 4) Stable guest identities for private-message authorization.
+        # Existing rows remain readable, but legacy guest DMs without IDs are
+        # intentionally not attributed to a newly joined guest with the same name.
+        insp4 = inspect(engine)
+        cols4 = {c["name"] for c in insp4.get_columns("chat_messages")}
+        if "sender_guest_id" not in cols4:
+            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN sender_guest_id VARCHAR"))
             print("migration: added chat_messages.sender_guest_id")
-        if "recipient_guest_id" not in cols3:
-            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_guest_id VARCHAR(64)"))
+        if "recipient_guest_id" not in cols4:
+            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN recipient_guest_id VARCHAR"))
             print("migration: added chat_messages.recipient_guest_id")
 
 

@@ -1,5 +1,4 @@
-// Meetly room client: LiveKit SFU (media) + WebSocket signaling (chat, roles,
-// hand-raise, reactions, host controls) + screen share + guest support
+// Meetly room client: WebRTC mesh + WebSocket signaling + chat + screen share + host controls + guest support
 (() => {
     // 1) Extract room code from URL param or sessionStorage
     const urlParams = new URLSearchParams(window.location.search);
@@ -20,31 +19,55 @@
 
     const token = API.getToken();
     const user = API.getUser();
-
-    // A guest credential represents one anonymous participant, not a display
-    // name. sessionStorage can be copied when a browser tab is duplicated, so
-    // never automatically reuse a copied credential for a fresh navigation to
-    // a room. Preserve it only for an actual page reload/reconnect in the same
-    // tab, which is what allows a guest to retain their identity after refresh.
-    const navEntry = performance.getEntriesByType('navigation')[0];
-    const navigationType = navEntry ? navEntry.type : 'navigate';
-    if (!token && urlParams.has('room') && navigationType !== 'reload') {
-        sessionStorage.removeItem('meetly_guest_token');
-        sessionStorage.removeItem('meetly_guest_name');
-        sessionStorage.removeItem('meetly_meeting_ticket');
+    let name = (token && user && user.username) ? user.username : (sessionStorage.getItem('meetly_guest_name') || '');
+    // Display names are not identities. Guests get a random ID that survives
+    // refreshes within this browser session and is used only for authorization.
+    let guestId = null;
+    if (!token) {
+        guestId = sessionStorage.getItem('meetly_guest_id');
+        if (!guestId) {
+            guestId = crypto.randomUUID();
+            sessionStorage.setItem('meetly_guest_id', guestId);
+        }
     }
 
-    let name = (token && user && user.username) ? user.username : (sessionStorage.getItem('meetly_guest_name') || '');
-    let meetingTicket = sessionStorage.getItem('meetly_meeting_ticket') || null;
+    const CONFIG = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+    };
+
+    let turnConfigured = false;
+
+    async function addTurnServers(turnTicket) {
+        if (turnConfigured || !turnTicket) return;
+        try {
+            const t = await apiFetch(`/turn/credentials?room=${encodeURIComponent(room)}`, {
+                headers: { 'X-Meetly-Turn-Ticket': turnTicket }
+            });
+            if (t && t.url && t.username && t.credential) {
+                CONFIG.iceServers.push({
+                    urls: t.url,
+                    username: t.username,
+                    credential: t.credential,
+                });
+                turnConfigured = true;
+                console.log('TURN configured:', t.url);
+            }
+        } catch (err) {
+            console.warn('TURN unavailable:', err.message);
+        }
+    }
 
     const state = {
         ws: null,
         myId: null,
         isOwner: false,
-        lkRoom: null,          // LiveKit Room instance (all AV media goes through this)
-        lkConnected: false,
+        localStream: null,
+        screenStream: null,
         isScreenSharing: false,
-        peers: new Map(),     // remoteId -> true (presence only; media comes via LiveKit now)
+        peers: new Map(),     // remoteId -> RTCPeerConnection
         peerNames: new Map(), // remoteId -> name
         peerRoles: new Map(), // remoteId -> isOwner (bool)
         peerHands: new Map(), // remoteId -> hand raised (bool)
@@ -62,9 +85,6 @@
         localPinId: null,     // tile the viewer manually pinned/fullscreened (takes priority)
         hostSpotlightId: null,// tile the host spotlighted for everyone (used when no local pin)
         dmTarget: '',         // '' = Everyone, otherwise a peer client_id
-        bgMode: 'none',       // 'none' | 'blur' | 'image'
-        bgImageUrl: null,     // data URL for the active virtual background image
-        facingMode: 'user',   // 'user' (front) | 'environment' (back) -- mobile camera direction
     };
 
     // DOM Elements
@@ -84,9 +104,6 @@
     const signinInsteadLink = document.getElementById('signin-instead-link');
     const reactionOverlay = document.getElementById('reaction-overlay');
     const chatTargetSelect = document.getElementById('chat-target-select');
-    const bgPopover = document.getElementById('bg-popover');
-    const bgBtn = document.getElementById('bg-btn');
-    const bgUploadInput = document.getElementById('bg-upload-input');
 
     if (signinInsteadLink) {
         signinInsteadLink.href = `/index.html?redirect=${encodeURIComponent('/room.html?room=' + room)}`;
@@ -162,244 +179,33 @@
     }
 
     // Local Media Initialization
-    // Connect to the LiveKit SFU room and publish our camera/mic. Must run
-    // AFTER the FastAPI WS 'joined' message so state.myId exists -- LiveKit's
-    // participant identity is set to that exact id (see livekit_token.py) so
-    // a video tile and a Meetly room member are always the same thing.
-    async function connectLiveKit() {
-        if (state.lkConnected) return;
-        if (typeof LivekitClient === 'undefined') {
-            throw new Error('Video library failed to load. Check your connection and refresh.');
+    async function initLocalStream() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error(
+                'Camera/microphone unavailable. This page must be opened over HTTPS (or localhost).'
+            );
         }
 
-        if (!meetingTicket) throw new Error('Meeting authentication is not ready');
-        const info = await apiFetch(`/livekit/token?room=${encodeURIComponent(room)}`, { headers: { Authorization: `Bearer ${meetingTicket}` } });
-        if (!info || !info.url || !info.token) {
-            throw new Error('Could not get a media session from the server.');
-        }
-
-        const lkRoom = new LivekitClient.Room({
-            adaptiveStream: true, // don't pull full-res video for tiles the viewer can't see
-            dynacast: true,       // stop encoding simulcast layers nobody is subscribed to
-            // Without this, mobile browsers often default to the back
-            // camera on first join -- this makes every camera start
-            // (initial join AND any later re-enable) prefer the front one.
-            videoCaptureDefaults: { facingMode: state.facingMode },
+        state.localStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: 'user'
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
         });
-        state.lkRoom = lkRoom;
 
-        lkRoom
-            .on(LivekitClient.RoomEvent.TrackSubscribed, onTrackSubscribed)
-            .on(LivekitClient.RoomEvent.TrackUnsubscribed, onTrackUnsubscribed)
-            .on(LivekitClient.RoomEvent.ActiveSpeakersChanged, onActiveSpeakersChanged)
-            .on(LivekitClient.RoomEvent.Disconnected, onLiveKitDisconnected)
-            .on(LivekitClient.RoomEvent.Reconnecting, () => showToast('Reconnecting media...', 'info', 2000))
-            .on(LivekitClient.RoomEvent.Reconnected, () => showToast('Media reconnected', 'success', 1500));
-
-        await lkRoom.connect(info.url, info.token);
-        state.lkConnected = true;
-
-        // Publish camera+mic. Build the local tile from LiveKit's own local
-        // track rather than a separate getUserMedia call.
         const tile = addTile('me', name, true);
         const video = tile.querySelector('video');
+        video.srcObject = state.localStream;
         video.muted = true;
-
-        try {
-            await lkRoom.localParticipant.setMicrophoneEnabled(true);
-            await lkRoom.localParticipant.setCameraEnabled(true);
-        } catch (err) {
-            // Camera/mic permission denied or unavailable -- let the user
-            // continue muted/camera-off rather than blocking the whole call.
-            console.warn('getUserMedia via LiveKit failed:', err);
-            showToast('Camera/microphone unavailable -- joined muted', 'error', 4000);
-            setMicState(false, false);
-            setCamState(false, false);
-        }
-
-        const camPub = lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
-        if (camPub && camPub.track) {
-            camPub.track.attach(video);
-        }
+        await video.play().catch(() => {});
+        setupAudioAnalyser(state.localStream, 'me');
         updateGridLayout();
-        detectMultipleCameras();
-    }
-
-    // Show the flip-camera button only on devices that actually have more
-    // than one camera (phones/tablets) -- pointless clutter on a laptop with
-    // a single webcam. Device labels/count are only populated once
-    // permission has been granted, so this only runs after camera start.
-    async function detectMultipleCameras() {
-        const switchBtn = document.getElementById('switch-cam-btn');
-        if (!switchBtn) return;
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoInputs = devices.filter(d => d.kind === 'videoinput');
-            switchBtn.classList.toggle('hidden', videoInputs.length < 2);
-        } catch (err) {
-            console.log('Camera enumeration notice:', err);
-        }
-    }
-
-    // Flips between front ('user') and back ('environment') camera. Uses
-    // facingMode constraints rather than picking a specific deviceId, since
-    // that's the approach that works reliably across phone browsers without
-    // needing to match device labels.
-    async function switchCamera() {
-        if (!state.lkRoom || !state.camOn) return;
-        const camPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
-        const track = camPub && camPub.track;
-        if (!track) return;
-
-        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
-        try {
-            await track.restartTrack({ facingMode: state.facingMode });
-            // Re-attach in case restartTrack swapped the underlying media
-            // stream, and re-apply any active virtual background since a
-            // restarted track can lose a previously set processor.
-            const tile = document.getElementById('tile-me');
-            const video = tile && tile.querySelector('video');
-            if (video) track.attach(video);
-            if (state.bgMode !== 'none') {
-                applyBackgroundMode(state.bgMode, state.bgImageUrl);
-            }
-            showToast(state.facingMode === 'user' ? 'Front camera' : 'Back camera', 'info', 1500);
-        } catch (err) {
-            console.warn('Camera switch failed:', err);
-            state.facingMode = state.facingMode === 'user' ? 'environment' : 'user'; // revert
-            showToast('Could not switch camera', 'error', 2500);
-        }
-    }
-
-    // Virtual background / blur. Uses LiveKit's official track-processors
-    // package, loaded lazily (only if someone actually opens the panel) since
-    // it pulls in a WASM segmentation model that's unnecessary weight for
-    // everyone who never touches the feature.
-    let _bgProcessorModulePromise = null;
-    function loadBackgroundProcessors() {
-        if (!_bgProcessorModulePromise) {
-            _bgProcessorModulePromise = import('https://cdn.jsdelivr.net/npm/@livekit/track-processors@0.3.1/+esm');
-        }
-        return _bgProcessorModulePromise;
-    }
-
-    // A few built-in gradient backgrounds, generated on the fly so we don't
-    // depend on any third-party image hosting staying online.
-    const BG_PRESETS = {
-        office: ['#1e293b', '#334155'],
-        studio: ['#4c1d95', '#7c3aed'],
-        warm: ['#78350f', '#d97706'],
-        cool: ['#0c4a6e', '#0ea5e9'],
-    };
-    function makePresetBackgroundDataUrl(presetId) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 360;
-        const ctx = canvas.getContext('2d');
-        const [c1, c2] = BG_PRESETS[presetId] || BG_PRESETS.office;
-        const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-        grad.addColorStop(0, c1);
-        grad.addColorStop(1, c2);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL('image/png');
-    }
-
-    // Applies (or clears) a background effect on the local camera track.
-    // Safe to call any time the camera is on; re-called automatically
-    // whenever the camera is re-enabled after being toggled off (see
-    // setCamState) since LiveKit may hand back a fresh track instance then.
-    async function applyBackgroundMode(mode, imageUrl = null) {
-        state.bgMode = mode;
-        state.bgImageUrl = imageUrl;
-        updateBgPopoverActiveState();
-
-        if (!state.lkRoom) return; // picked before camera ever started; applied on connect instead
-        const camPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
-        const track = camPub && camPub.track;
-        if (!track) return;
-
-        try {
-            if (mode === 'none') {
-                await track.stopProcessor();
-            } else {
-                const { BackgroundBlur, VirtualBackground } = await loadBackgroundProcessors();
-                const processor = mode === 'blur' ? BackgroundBlur(10) : VirtualBackground(imageUrl);
-                await track.setProcessor(processor);
-            }
-        } catch (err) {
-            console.error('Virtual background failed:', err);
-            showToast('Virtual background isn\'t supported in this browser', 'error', 3500);
-            state.bgMode = 'none';
-            updateBgPopoverActiveState();
-        }
-    }
-
-    function updateBgPopoverActiveState() {
-        document.querySelectorAll('.bg-option-btn[data-mode], .bg-swatch-btn').forEach(btn => {
-            const isImageMatch = btn.dataset.mode === 'image' &&
-                state.bgMode === 'image' &&
-                state.bgImageUrl === (btn.dataset.preset ? makePresetBackgroundDataUrl(btn.dataset.preset) : state.bgImageUrl);
-            const isPlainMatch = btn.dataset.mode !== 'image' && btn.dataset.mode === state.bgMode;
-            btn.classList.toggle('active', isImageMatch || isPlainMatch);
-        });
-    }
-
-    function onActiveSpeakersChanged(speakers) {
-        const speakingIds = new Set(speakers.map(p => p.identity === state.myId ? 'me' : p.identity));
-        document.querySelectorAll('.video-tile').forEach(t => {
-            const id = t.id.replace(/^tile-/, '');
-            t.classList.toggle('is-speaking', speakingIds.has(id));
-        });
-    }
-
-    function onLiveKitDisconnected() {
-        state.lkConnected = false;
-        if (!state.intentionalLeave) {
-            showToast('Media connection lost -- attempting to reconnect...', 'error', 3000);
-        }
-    }
-
-    // A remote (or our own screen-share) track became available to render.
-    function onTrackSubscribed(track, publication, participant) {
-        const isScreen = publication.source === LivekitClient.Track.Source.ScreenShare;
-        const baseId = participant.identity;
-        const tileId = isScreen ? `${baseId}-screen` : baseId;
-
-        if (track.kind === LivekitClient.Track.Kind.Video) {
-            const displayName = state.peerNames.get(baseId) || participant.name || 'Participant';
-            const tile = addTile(tileId, isScreen ? `${displayName}'s screen` : displayName, false);
-            const video = tile.querySelector('video');
-            track.attach(video);
-            if (isScreen) {
-                tile.classList.add('screen-tile');
-                // Screen shares are the whole point of pinning -- default to
-                // showing it big for everyone who hasn't manually pinned
-                // something else themselves.
-                if (!state.localPinId) {
-                    state.localPinId = tileId;
-                }
-            }
-            setTileCameraState(tileId, true);
-            updateGridLayout();
-        } else if (track.kind === LivekitClient.Track.Kind.Audio) {
-            // Audio has no tile UI; just attach it to an off-screen element
-            // so it actually plays.
-            track.attach();
-        }
-    }
-
-    function onTrackUnsubscribed(track, publication, participant) {
-        const isScreen = publication.source === LivekitClient.Track.Source.ScreenShare;
-        const tileId = isScreen ? `${participant.identity}-screen` : participant.identity;
-        track.detach();
-        if (isScreen) {
-            if (state.localPinId === tileId) state.localPinId = null;
-            removeTile(tileId);
-        }
-        // Camera tiles stay (host controls / roster still show the person);
-        // just mark the feed as off until a new track arrives.
-        if (!isScreen) setTileCameraState(tileId, false);
     }
 
     // Video Tile Generator
@@ -513,26 +319,107 @@
         }
     }
 
-    // Roster bookkeeping for a peer. Actual video/audio for this id arrives
-    // separately via LiveKit's TrackSubscribed once their media is ready --
-    // this just makes sure a tile + name/role exist so the UI has somewhere
-    // to put it (and so DM target list / people list / host controls work
-    // immediately, even before their camera track shows up).
-    function createPeer(remoteId, peerName, isPeerOwner = false) {
-        state.peers.set(remoteId, true);
+    function setupAudioAnalyser(stream, targetId) {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            const audioCtx = new AudioContext();
+            const audioTracks = stream.getAudioTracks();
+            if (!audioTracks.length) return;
+
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            let checkSpeaking = () => {
+                if (!document.getElementById('tile-' + targetId)) return;
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i];
+                }
+                const average = sum / bufferLength;
+                const tile = document.getElementById('tile-' + targetId);
+                if (tile) {
+                    if (average > 25) {
+                        tile.classList.add('is-speaking');
+                    } else {
+                        tile.classList.remove('is-speaking');
+                    }
+                }
+                requestAnimationFrame(checkSpeaking);
+            };
+            requestAnimationFrame(checkSpeaking);
+        } catch (e) {
+            console.log('Audio analyser notice:', e);
+        }
+    }
+
+    // WebRTC Peer Management
+    function createPeer(remoteId, peerName, isInitiator, isPeerOwner = false) {
+        if (state.peers.has(remoteId)) return state.peers.get(remoteId);
+
+        const pc = new RTCPeerConnection(CONFIG);
+        state.peers.set(remoteId, pc);
         state.peerNames.set(remoteId, peerName);
         state.peerRoles.set(remoteId, isPeerOwner);
-        addTile(remoteId, peerName, false);
+
+        // Add local tracks
+        const currentStream = state.isScreenSharing && state.screenStream ? state.screenStream : state.localStream;
+        currentStream.getTracks().forEach(track => pc.addTrack(track, currentStream));
+
+        // Remote track arrived
+        pc.ontrack = (event) => {
+            const tile = addTile(remoteId, state.peerNames.get(remoteId) || peerName);
+            const video = tile.querySelector('video');
+            if (video.srcObject !== event.streams[0]) {
+                video.srcObject = event.streams[0];
+                video.muted = false;
+                video.play().catch(() => {});
+                setupAudioAnalyser(event.streams[0], remoteId);
+            }
+            updateGridLayout();
+        };
+
+        pc.onicecandidate = (e) => {
+            if (e.candidate) {
+                send({ type: 'ice-candidate', to: remoteId, candidate: e.candidate });
+            }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'connected') {
+                setConnBadgeStatus(`${state.peers.size + 1} in call`, 'connected');
+            }
+        };
+
+        if (isInitiator) {
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .then(() => {
+                    send({ type: 'offer', to: remoteId, sdp: pc.localDescription });
+                })
+                .catch(console.error);
+        }
+
+        return pc;
     }
 
     function closePeer(remoteId) {
-        state.peers.delete(remoteId);
+        const pc = state.peers.get(remoteId);
+        if (pc) {
+            pc.close();
+            state.peers.delete(remoteId);
+        }
         state.peerNames.delete(remoteId);
         state.peerRoles.delete(remoteId);
         state.peerHands.delete(remoteId);
         updateChatTargetOptions();
         removeTile(remoteId);
-        removeTile(remoteId + '-screen'); // in case they were screen-sharing when they left
         updateGridLayout();
         if (state.peers.size === 0) {
             setConnBadgeStatus('Connected (Alone)', 'connected');
@@ -540,6 +427,7 @@
     }
 
     function closeAllPeers() {
+        state.peers.forEach(pc => pc.close());
         state.peers.clear();
         state.peerNames.clear();
         state.peerRoles.clear();
@@ -568,12 +456,10 @@
         }
     }
 
-    function handleMessage(data) {
+    async function handleMessage(data) {
         switch (data.type) {
             case 'joined':
                 state.myId = data.id;
-                if (data.meeting_ticket) { meetingTicket = data.meeting_ticket; sessionStorage.setItem('meetly_meeting_ticket', meetingTicket); }
-                if (data.guest_token) sessionStorage.setItem('meetly_guest_token', data.guest_token);
                 state.isOwner = !!data.is_owner;
                 state.hostSpotlightId = data.spotlight || null;
 
@@ -583,8 +469,11 @@
                 }
 
                 setConnBadgeStatus('Connected', 'connected');
+                // TURN credentials are issued only after the server has authenticated
+                // this WebSocket as a legitimate room participant.
+                await addTurnServers(data.turn_ticket);
                 data.peers.forEach(p => {
-                    createPeer(p.id, p.name, !!p.is_owner);
+                    createPeer(p.id, p.name, true, !!p.is_owner);
                     state.peerHands.set(p.id, !!p.hand_raised);
                 });
 
@@ -602,24 +491,38 @@
                 updateChatTargetOptions();
                 updateGridLayout();
                 updatePeopleList();
-
-                // Now that we have our stable id (= LiveKit identity), join
-                // the SFU for actual audio/video. Only ever runs once per
-                // page load -- reconnects re-send 'joined' but connectLiveKit
-                // no-ops if already connected.
-                connectLiveKit().catch(err => {
-                    console.error('LiveKit connect failed:', err);
-                    showToast('Could not start video/audio: ' + err.message, 'error', 5000);
-                });
                 break;
 
             case 'peer-joined':
                 showToast(`${data.name} joined`, 'info');
-                createPeer(data.id, data.name, !!data.is_owner);
+                createPeer(data.id, data.name, false, !!data.is_owner);
                 state.peerHands.set(data.id, !!data.hand_raised);
                 setConnBadgeStatus(`${state.peers.size + 1} in call`, 'connected');
                 updateChatTargetOptions();
                 updatePeopleList();
+                break;
+
+            case 'offer':
+                createPeer(data.from, data.from_name, false);
+                const pcOffer = state.peers.get(data.from);
+                if (pcOffer) {
+                    pcOffer.setRemoteDescription(data.sdp)
+                        .then(() => pcOffer.createAnswer())
+                        .then(answer => pcOffer.setLocalDescription(answer))
+                        .then(() => send({ type: 'answer', to: data.from, sdp: pcOffer.localDescription }))
+                        .catch(console.error);
+                }
+                break;
+
+            case 'answer':
+                state.peers.get(data.from)?.setRemoteDescription(data.sdp).catch(console.error);
+                break;
+
+            case 'ice-candidate':
+                const pcIce = state.peers.get(data.from);
+                if (pcIce && data.candidate) {
+                    pcIce.addIceCandidate(data.candidate).catch(console.error);
+                }
                 break;
 
             case 'chat':
@@ -981,10 +884,8 @@
     // Controls Logic
     function setMicState(on, announce = true) {
         state.micOn = on;
-        if (state.lkRoom) {
-            state.lkRoom.localParticipant.setMicrophoneEnabled(on).catch(err => {
-                console.warn('setMicrophoneEnabled failed:', err);
-            });
+        if (state.localStream) {
+            state.localStream.getAudioTracks().forEach(t => t.enabled = on);
         }
         const micBtn = document.getElementById('mic-btn');
         const iconOn = document.getElementById('mic-icon-on');
@@ -1010,19 +911,8 @@
 
     function setCamState(on, announce = true) {
         state.camOn = on;
-        if (state.lkRoom) {
-            state.lkRoom.localParticipant.setCameraEnabled(on)
-                .then(() => {
-                    // Re-enabling the camera may hand back a fresh track
-                    // instance, which loses any previously applied
-                    // background effect -- put it back if one was active.
-                    if (on && state.bgMode !== 'none') {
-                        applyBackgroundMode(state.bgMode, state.bgImageUrl);
-                    }
-                })
-                .catch(err => {
-                    console.warn('setCameraEnabled failed:', err);
-                });
+        if (state.localStream) {
+            state.localStream.getVideoTracks().forEach(t => t.enabled = on);
         }
         const camBtn = document.getElementById('cam-btn');
         const iconOn = document.getElementById('cam-icon-on');
@@ -1053,54 +943,81 @@
         showToast(state.camOn ? 'Camera turned on' : 'Camera turned off', 'info', 1500);
     }
 
-    // Screen Sharing -- LiveKit publishes this as its own track (source:
-    // ScreenShare), separate from the camera track, so it shows up for
-    // everyone as its own tile (see onTrackSubscribed) rather than replacing
-    // the camera feed the way the old mesh code had to.
+    // Screen Sharing
     async function toggleScreenShare() {
-        if (!state.lkRoom) return;
         const screenBtn = document.getElementById('screen-btn');
 
         if (state.isScreenSharing) {
-            await stopScreenShare();
+            stopScreenShare();
             return;
         }
 
         try {
-            await state.lkRoom.localParticipant.setScreenShareEnabled(true, { audio: false });
+            state.screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { cursor: 'always' },
+                audio: false
+            });
+
             state.isScreenSharing = true;
-            if (screenBtn) screenBtn.className = 'dock-btn bg-brand-500 text-white shadow-lg shadow-brand-500/30';
+            screenBtn.className = 'dock-btn bg-brand-500 text-white shadow-lg shadow-brand-500/30';
             showToast('Screen sharing started', 'success');
 
-            const screenPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.ScreenShare);
-            if (screenPub && screenPub.track) {
-                const tile = addTile('me-screen', `${name}'s screen`, false);
-                screenPub.track.attach(tile.querySelector('video'));
-                tile.classList.add('screen-tile');
-                state.localPinId = 'me-screen';
-                updateGridLayout();
-                // Browser's native "Stop sharing" button
-                screenPub.track.mediaStreamTrack.onended = () => stopScreenShare();
+            const screenTrack = state.screenStream.getVideoTracks()[0];
+            const myTile = document.getElementById('tile-me');
+            if (myTile) {
+                myTile.classList.add('screen-tile');
+                const video = myTile.querySelector('video');
+                video.srcObject = state.screenStream;
             }
+
+            state.peers.forEach(pc => {
+                const senders = pc.getSenders();
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(screenTrack);
+                }
+            });
+
+            screenTrack.onended = () => {
+                stopScreenShare();
+            };
         } catch (err) {
             console.log('Screen share notice:', err);
-            state.isScreenSharing = false;
-            if (screenBtn) screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white';
+            stopScreenShare();
         }
     }
 
-    async function stopScreenShare() {
-        if (!state.isScreenSharing || !state.lkRoom) return;
+    function stopScreenShare() {
+        if (!state.isScreenSharing) return;
         state.isScreenSharing = false;
 
         const screenBtn = document.getElementById('screen-btn');
         if (screenBtn) {
-            screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white';
+            screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex';
         }
 
-        await state.lkRoom.localParticipant.setScreenShareEnabled(false).catch(() => {});
-        if (state.localPinId === 'me-screen') state.localPinId = null;
-        removeTile('me-screen');
+        if (state.screenStream) {
+            state.screenStream.getTracks().forEach(t => t.stop());
+            state.screenStream = null;
+        }
+
+        const myTile = document.getElementById('tile-me');
+        if (myTile) {
+            myTile.classList.remove('screen-tile');
+            const video = myTile.querySelector('video');
+            video.srcObject = state.localStream;
+        }
+
+        const camTrack = state.localStream.getVideoTracks()[0];
+        if (camTrack) {
+            state.peers.forEach(pc => {
+                const senders = pc.getSenders();
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+                if (videoSender) {
+                    videoSender.replaceTrack(camTrack);
+                }
+            });
+        }
         showToast('Screen sharing stopped', 'info');
     }
 
@@ -1159,8 +1076,7 @@
             if (token) {
                 state.ws.send(JSON.stringify({ type: 'auth', token }));
             } else {
-                const guestToken = sessionStorage.getItem('meetly_guest_token');
-                state.ws.send(JSON.stringify(guestToken ? { type: 'auth', guest_token: guestToken } : { type: 'auth', guest_name: name }));
+                state.ws.send(JSON.stringify({ type: 'auth', guest_name: name, guest_id: guestId }));
             }
         };
 
@@ -1204,8 +1120,10 @@
     function leaveCall() {
         state.intentionalLeave = true;
         send({ type: 'leave' });
+        state.peers.forEach(pc => pc.close());
         state.peers.clear();
-        state.lkRoom?.disconnect();
+        state.localStream?.getTracks().forEach(t => t.stop());
+        state.screenStream?.getTracks().forEach(t => t.stop());
         state.ws?.close();
         sessionStorage.removeItem('meetly_room');
         window.location.href = token ? '/dashboard.html' : '/index.html';
@@ -1214,7 +1132,8 @@
     window.addEventListener('beforeunload', () => {
         state.intentionalLeave = true;
         send({ type: 'leave' });
-        state.lkRoom?.disconnect();
+        state.localStream?.getTracks().forEach(t => t.stop());
+        state.screenStream?.getTracks().forEach(t => t.stop());
     });
 
     // Share link copy function
@@ -1226,7 +1145,6 @@
     // Event Bindings
     document.getElementById('mic-btn')?.addEventListener('click', toggleMic);
     document.getElementById('cam-btn')?.addEventListener('click', toggleCam);
-    document.getElementById('switch-cam-btn')?.addEventListener('click', switchCamera);
     document.getElementById('screen-btn')?.addEventListener('click', toggleScreenShare);
     document.getElementById('leave-btn')?.addEventListener('click', leaveCall);
     document.getElementById('header-leave-btn')?.addEventListener('click', leaveCall);
@@ -1283,42 +1201,6 @@
         });
     });
 
-    // Virtual background / blur picker
-    bgBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        bgPopover?.classList.toggle('open');
-    });
-    document.addEventListener('click', (e) => {
-        if (bgPopover?.classList.contains('open') &&
-            !bgPopover.contains(e.target) && e.target !== bgBtn) {
-            bgPopover.classList.remove('open');
-        }
-    });
-
-    document.getElementById('bg-popover')?.querySelectorAll('.bg-option-btn[data-mode]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            applyBackgroundMode(btn.dataset.mode);
-        });
-    });
-    document.querySelectorAll('.bg-swatch-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const dataUrl = makePresetBackgroundDataUrl(btn.dataset.preset);
-            applyBackgroundMode('image', dataUrl);
-        });
-    });
-    bgUploadInput?.addEventListener('change', () => {
-        const file = bgUploadInput.files && bgUploadInput.files[0];
-        if (!file) return;
-        if (!file.type.startsWith('image/')) {
-            showToast('Please choose an image file', 'error', 2500);
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => applyBackgroundMode('image', reader.result);
-        reader.readAsDataURL(file);
-        bgUploadInput.value = ''; // allow re-selecting the same file later
-    });
-
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
         if (document.activeElement === chatInput || document.activeElement === guestNameInput) return;
@@ -1332,13 +1214,12 @@
         try {
             // Guests have no account, so pass their display name to let the
             // server include DMs sent to/from them (see rooms.py filtering).
-            const guestToken = sessionStorage.getItem('meetly_guest_token');
-            const qs = (!token && guestToken) ? `?guest_token=${encodeURIComponent(guestToken)}` : '';
+            const qs = (!token && guestId) ? `?guest_id=${encodeURIComponent(guestId)}` : '';
             const msgs = await apiFetch(`/rooms/${room}/messages${qs}`);
             if (msgs && msgs.length > 0) {
                 chatMessages.innerHTML = '';
                 msgs.forEach(m => {
-                    const isSelf = m.is_self === true;
+                    const isSelf = Boolean(m.is_self);
                     const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
                     if (m.is_private) {
                         const label = isSelf ? `to ${m.to_name || 'someone'}` : 'Private';
@@ -1359,9 +1240,7 @@
             // between visits (no-op for guests).
             refreshSession();
             await loadChatHistory();
-            // Camera/mic publish happens once the WS 'joined' message gives
-            // us our stable id -- see connectLiveKit(), called from
-            // handleMessage's 'joined' case.
+            await initLocalStream();
             connectWebSocket();
         } catch (err) {
             alert('Could not initialize video call: ' + err.message);

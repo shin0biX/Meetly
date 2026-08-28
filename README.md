@@ -68,3 +68,15 @@ Meetly/
 - **HTTPS required** for `getUserMedia` on non-localhost. Behind a reverse proxy, use `wss://`.
 - Mesh topology degrades beyond ~6-8 participants; use an **SFU** (LiveKit / mediasoup) for larger calls.
 - `hosting` secrets live in `.env` (gitignored); the DB `backend/meetly.db` is also gitignored.
+
+### WebSocket origin security
+
+Meetly validates the browser `Origin` header before accepting WebSocket connections.
+The production domain `https://meetly.ujjawalcodes.site` and common localhost development
+origins are allowed by default. Additional origins can be configured with:
+
+```env
+MEETLY_ALLOWED_ORIGINS=https://meetly.ujjawalcodes.site
+```
+
+Use a comma-separated list if you intentionally host Meetly on multiple origins.

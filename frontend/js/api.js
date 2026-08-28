@@ -16,7 +16,9 @@
 const API = {
     getToken() { return localStorage.getItem('meetly_token'); },
     setToken(t) { localStorage.setItem('meetly_token', t); },
-    removeToken() { localStorage.removeItem('meetly_token'); },
+    getRefreshToken() { return localStorage.getItem('meetly_refresh_token'); },
+    setRefreshToken(t) { localStorage.setItem('meetly_refresh_token', t); },
+    removeToken() { localStorage.removeItem('meetly_token'); localStorage.removeItem('meetly_refresh_token'); },
     getUser() {
         try { return JSON.parse(localStorage.getItem('meetly_user')); }
         catch { return null; }
@@ -27,7 +29,7 @@ const API = {
 async function apiFetch(endpoint, options = {}) {
     const headers = { ...(options.headers || {}) };
     const token = API.getToken();
-    if (token && !headers['Authorization']) headers['Authorization'] = `Bearer ${token}`;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     if (options.body && !(options.body instanceof FormData) && !(options.body instanceof URLSearchParams)) {
         headers['Content-Type'] = 'application/json';
     }
@@ -48,21 +50,17 @@ async function apiFetch(endpoint, options = {}) {
 // triggers the global 401 logout — if the token is truly expired, the next
 // real API call handles logout as usual. No-op for guests (no token).
 async function refreshSession() {
-    const token = API.getToken();
-    if (!token) return;
+    const refreshToken = API.getRefreshToken();
+    if (!refreshToken) return false;
     try {
-        const res = await fetch('/auth/refresh', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.access_token) API.setToken(data.access_token);
-            if (data.username) API.setUser({ username: data.username });
-        }
-    } catch (_) {
-        // Network hiccup — keep the existing token untouched.
-    }
+        const res = await fetch('/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refreshToken }) });
+        if (!res.ok) { API.removeToken(); return false; }
+        const data = await res.json();
+        if (data.access_token) API.setToken(data.access_token);
+        if (data.refresh_token) API.setRefreshToken(data.refresh_token);
+        if (data.username) API.setUser({ username: data.username });
+        return true;
+    } catch (_) { return false; }
 }
 
 // Canonical escapeHtml — shared by all pages

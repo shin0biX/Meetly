@@ -15,10 +15,27 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     full_name = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
+    # Increment to invalidate all previously issued JWTs for this user.
+    token_version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, default=utcnow)
 
     owned_rooms = relationship("Room", back_populates="owner")
     messages = relationship("ChatMessage", back_populates="user", foreign_keys="ChatMessage.user_id")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, nullable=False, default=False)
+    original_session_start = Column(DateTime, nullable=False, default=utcnow)
+    user_agent = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+
+    user = relationship("User")
 
 
 class Room(Base):
@@ -47,13 +64,11 @@ class ChatMessage(Base):
     # Direct-message fields. NULL/False recipient means a normal room-wide message.
     is_private = Column(Boolean, default=False, nullable=True)
     recipient_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    # Guests have no user_id, so DMs to/from a guest are matched by display
-    # name instead. Weak (names aren't unique) but there's no other stable
-    # guest identity across reconnects.
+    # Guest identities are random UUIDs generated per browser session. Display
+    # names are presentation-only and must never be used for authorization.
+    sender_guest_id = Column(String, nullable=True, index=True)
+    recipient_guest_id = Column(String, nullable=True, index=True)
     recipient_name = Column(String, nullable=True)
-    # Stable server-assigned identities for guests; never authorize by display name.
-    sender_guest_id = Column(String(64), nullable=True)
-    recipient_guest_id = Column(String(64), nullable=True)
 
     room = relationship("Room", back_populates="messages")
     user = relationship("User", back_populates="messages", foreign_keys=[user_id])

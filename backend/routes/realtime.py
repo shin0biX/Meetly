@@ -2,41 +2,62 @@
 
 Supports both authenticated users and guests:
 - Authenticated user connects with: {"type": "auth", "token": "<JWT>"}
-- Guest connects with: {"type": "auth", "guest_name": "Alice"}
+- Guest connects with: {"type": "auth", "guest_name": "Alice", "guest_id": "<UUID>"}
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import secrets
-from typing import Dict, Optional
-from datetime import datetime, timedelta, timezone
+import time
+from collections import defaultdict, deque
+from typing import Deque, Dict, Optional, Tuple
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 
 from database import SessionLocal
 from models import User, Room, ChatMessage
-from config import SECRET_KEY, ALGORITHM
-
-GUEST_TOKEN_TYPE = "guest_access"
-GUEST_TOKEN_HOURS = 24
-from rate_limit import ConnectionRateLimiter
+from config import SECRET_KEY, ALGORITHM, ALLOWED_ORIGINS
+from routes.turn import issue_turn_ticket, revoke_turn_ticket
 
 router = APIRouter(tags=["realtime"])
 
-# Bounds that exist purely to make the room unable to take the whole server
-# down: without these, one connection flooding messages (or a script opening
-# many connections) can pin the event loop and make the server unresponsive
-# to everyone, not just that room -- reproduced and confirmed in testing.
-MAX_ROOM_SIZE = 50          # participants per room
-MAX_TOTAL_CONNECTIONS = 300  # concurrent WS connections, server-wide
-MAX_WS_MESSAGE_BYTES = 4096  # a legitimate message (chat/reaction/etc) never needs more
-MSG_RATE_PER_SEC = 15        # sustained messages/sec a single connection may send
-MSG_BURST = 30               # short burst allowance on top of the sustained rate
-MAX_VIOLATIONS_BEFORE_KICK = 50  # disconnect a connection that keeps ignoring its limit
 
-_total_connections = 0
+# WebSocket abuse limits. These are intentionally generous for WebRTC signaling
+# while keeping chat/reaction spam from overwhelming a room or the server.
+MAX_WS_MESSAGE_BYTES = 64 * 1024
+RATE_LIMITS: Dict[str, Tuple[int, float]] = {
+    "chat": (8, 10.0),
+    "reaction": (15, 5.0),
+    "signaling": (120, 10.0),
+    "default": (60, 10.0),
+}
+
+
+def _allow_event(
+    buckets: Dict[str, Deque[float]], event: str, now: Optional[float] = None
+) -> bool:
+    """Simple per-connection sliding-window rate limiter."""
+    limit, window = RATE_LIMITS[event]
+    now = time.monotonic() if now is None else now
+    bucket = buckets[event]
+    cutoff = now - window
+    while bucket and bucket[0] <= cutoff:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        return False
+    bucket.append(now)
+    return True
+
+
+def _event_bucket(message_type: object) -> str:
+    if message_type in {"offer", "answer", "ice-candidate"}:
+        return "signaling"
+    if message_type == "chat":
+        return "chat"
+    if message_type == "reaction":
+        return "reaction"
+    return "default"
 
 
 class RoomMember:
@@ -46,6 +67,7 @@ class RoomMember:
         self.websocket = websocket
         self.user_id = user_id
         self.guest_id = guest_id
+        self.turn_ticket: Optional[str] = None
         # is_owner: currently has host rights (owner OR promoted). Can be toggled at runtime.
         self.is_owner = is_owner
         # is_original_owner: the room creator (room.owner_id). Never demotable; sole host-manager.
@@ -103,19 +125,22 @@ async def relay(room_code: str, target_id: str, message: dict) -> bool:
 
 def persist_chat(
     db, room_id: int, user_id: Optional[int], sender_name: str, text: str,
+    sender_guest_id: Optional[str] = None,
     is_private: bool = False,
     recipient_user_id: Optional[int] = None,
+    recipient_guest_id: Optional[str] = None,
     recipient_name: Optional[str] = None,
-    sender_guest_id: Optional[str] = None, recipient_guest_id: Optional[str] = None,
 ) -> None:
     """Persist a chat message. Never raises: a storage failure must NOT take
     down the WebSocket connection (chat still broadcasts even if saving fails)."""
     try:
         msg = ChatMessage(
             room_id=room_id, user_id=user_id, sender_name=sender_name, text=text,
+            sender_guest_id=sender_guest_id,
             is_private=is_private,
             recipient_user_id=recipient_user_id,
-            recipient_name=recipient_name, sender_guest_id=sender_guest_id, recipient_guest_id=recipient_guest_id,
+            recipient_guest_id=recipient_guest_id,
+            recipient_name=recipient_name,
         )
         db.add(msg)
         db.commit()
@@ -125,19 +150,6 @@ def persist_chat(
         except Exception:
             pass
         print(f"[meetly] chat persist failed (non-fatal): {e}")
-
-
-def _persist_chat_sync(room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name, sender_guest_id=None, recipient_guest_id=None) -> None:
-    """Opens its own session and persists -- runs in a worker thread via
-    asyncio.to_thread so the blocking sqlite3 commit() call never blocks the
-    event loop that every other connection/room depends on. Under a message
-    flood this was the single biggest factor in the whole server (not just
-    one room) becoming unresponsive -- see the audit."""
-    db = SessionLocal()
-    try:
-        persist_chat(db, room_id, user_id, sender_name, text, is_private, recipient_user_id, recipient_name, sender_guest_id, recipient_guest_id)
-    finally:
-        db.close()
 
 
 @router.get("/rooms/{room_code}/peers", tags=["rooms"])
@@ -151,13 +163,20 @@ async def websocket_endpoint(
     websocket: WebSocket,
     room_code: str,
 ):
+    # Validate the browser Origin *before* accepting the WebSocket. This prevents
+    # arbitrary websites from opening a WebSocket to Meetly from a victim's browser.
+    origin = (websocket.headers.get("origin") or "").rstrip("/")
+    if origin not in ALLOWED_ORIGINS:
+        await websocket.close(code=1008, reason="Origin not allowed")
+        return
+
     await websocket.accept()
 
     # 1) Wait for auth/join message
     try:
         raw = await websocket.receive_text()
-        if len(raw) > MAX_WS_MESSAGE_BYTES:
-            await websocket.close(code=4413, reason="Message too large")
+        if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
+            await websocket.close(code=1009, reason="Message too large")
             return
         data = json.loads(raw)
     except Exception:
@@ -170,11 +189,10 @@ async def websocket_endpoint(
 
     token = data.get("token")
     guest_name = (data.get("guest_name") or "").strip()
-    guest_token = data.get("guest_token")
+    guest_id = (data.get("guest_id") or "").strip()
 
     user_id: Optional[int] = None
-    guest_id: Optional[str] = None
-    issued_guest_token: Optional[str] = None
+    stable_guest_id: Optional[str] = None
     display_name: str = ""
     is_owner: bool = False
 
@@ -196,31 +214,26 @@ async def websocket_endpoint(
                 token_user_id = payload.get("id")
                 if token_user_id:
                     user = db.query(User).filter(User.id == token_user_id).first()
-                    if user:
+                    # JWTs are only valid while their embedded token version
+                    # matches the user's current version.
+                    if user and payload.get("ver") == user.token_version:
                         user_id = user.id
                         display_name = user.username
                         is_owner = (user.id == room_owner_id)
             except JWTError:
                 pass  # Fall back to guest if token is invalid or expired
 
-        # If not authenticated as a user, verify an existing guest credential or
-        # create a new server-assigned guest identity. Display names are never identity.
+        # If not authenticated via token, use guest credentials
         if not user_id:
-            if guest_token:
-                try:
-                    gp = jwt.decode(guest_token, SECRET_KEY, algorithms=[ALGORITHM])
-                    if gp.get("typ") == GUEST_TOKEN_TYPE and gp.get("sub") == "guest" and gp.get("room") == room_code.lower() and gp.get("gid"):
-                        guest_id = str(gp["gid"])
-                        display_name = str(gp.get("display") or "Guest")[:30]
-                    else:
-                        raise JWTError("invalid guest token")
-                except JWTError:
-                    await websocket.close(code=4401, reason="Invalid guest token")
-                    return
-            else:
-                guest_id = secrets.token_hex(16)
-                display_name = guest_name[:30] if guest_name else f"Guest_{secrets.token_hex(2)}"
-                issued_guest_token = jwt.encode({"sub":"guest","typ":GUEST_TOKEN_TYPE,"gid":guest_id,"room":room_code.lower(),"display":display_name,"exp":datetime.now(timezone.utc)+timedelta(hours=GUEST_TOKEN_HOURS)}, SECRET_KEY, algorithm=ALGORITHM)
+            # A guest ID is an opaque UUID generated by the browser. Require a
+            # reasonable UUID-shaped value instead of trusting display names.
+            try:
+                from uuid import UUID
+                stable_guest_id = str(UUID(guest_id))
+            except (ValueError, AttributeError, TypeError):
+                await websocket.close(code=4401, reason="Invalid guest identity")
+                return
+            display_name = guest_name[:30] if guest_name else f"Guest_{secrets.token_hex(2)}"
             is_owner = False
 
     finally:
@@ -228,21 +241,29 @@ async def websocket_endpoint(
 
     room_members = _room(room_code)
 
-    # A guest credential represents a single anonymous participant. Reject a
-    # second simultaneous connection using the same credential; this prevents
-    # a copied/stolen browser credential from silently becoming the same guest
-    # while the original participant is still connected.
-    if guest_id and any(m.guest_id == guest_id for m in room_members.values()):
-        await websocket.close(code=4409, reason="Guest identity already connected")
-        return
+    # A browser can reconnect before its previous WebSocket has fully closed.
+    # Treat the authenticated user ID / stable guest ID as the connection
+    # identity and replace an older connection from the same identity. Without
+    # this, a refresh or reconnect can temporarily create duplicate participants.
+    stale_ids = []
+    for existing_id, existing_member in list(room_members.items()):
+        same_user = user_id is not None and existing_member.user_id == user_id
+        same_guest = stable_guest_id is not None and existing_member.guest_id == stable_guest_id
+        if same_user or same_guest:
+            stale_ids.append(existing_id)
 
-    global _total_connections
-    if _total_connections >= MAX_TOTAL_CONNECTIONS:
-        await websocket.close(code=4429, reason="Server is at capacity, please try again shortly")
-        return
-    if len(room_members) >= MAX_ROOM_SIZE:
-        await websocket.close(code=4429, reason="This room is full")
-        return
+    for stale_id in stale_ids:
+        stale_member = room_members.pop(stale_id, None)
+        if stale_member is not None:
+            if SPOTLIGHTS.get(room_code) == stale_id:
+                SPOTLIGHTS[room_code] = None
+                await broadcast(room_code, {"type": "spotlight-update", "id": None})
+            await broadcast(room_code, {"type": "peer-left", "id": stale_id}, exclude=stale_id)
+            revoke_turn_ticket(stale_member.turn_ticket)
+            try:
+                await stale_member.websocket.close(code=4000, reason="Replaced by a newer connection")
+            except Exception:
+                pass
 
     client_id = secrets.token_hex(8)
     member = RoomMember(
@@ -250,13 +271,15 @@ async def websocket_endpoint(
         name=display_name,
         websocket=websocket,
         user_id=user_id,
-        guest_id=guest_id,
+        guest_id=stable_guest_id,
         is_owner=is_owner,
         is_original_owner=is_owner,
     )
+    # TURN authorization is issued only after the participant has passed the
+    # WebSocket room authentication. The ticket is short-lived and revoked when
+    # the participant disconnects.
+    member.turn_ticket = issue_turn_ticket(room_code)
     room_members[client_id] = member
-    _total_connections += 1
-    limiter = ConnectionRateLimiter(rate_per_sec=MSG_RATE_PER_SEC, burst=MSG_BURST)
 
     try:
         # Notify newcomer with self info & peer roster
@@ -268,13 +291,6 @@ async def websocket_endpoint(
             for pid, m in room_members.items()
             if pid != client_id
         ]
-        meeting_ticket = jwt.encode({
-            "typ": "meetly_meeting_ticket",
-            "room": room_code.lower(),
-            "cid": client_id,
-            "name": display_name[:60],
-            "exp": datetime.now(timezone.utc) + timedelta(hours=6),
-        }, SECRET_KEY, algorithm=ALGORITHM)
         await member.send({
             "type": "joined",
             "id": client_id,
@@ -282,8 +298,7 @@ async def websocket_endpoint(
             "is_owner": is_owner,
             "peers": peers,
             "spotlight": SPOTLIGHTS.get(room_code),
-            "meeting_ticket": meeting_ticket,
-            "guest_token": issued_guest_token,
+            "turn_ticket": member.turn_ticket,
         })
 
         # Broadcast newcomer to existing peers
@@ -298,34 +313,51 @@ async def websocket_endpoint(
         
         await broadcast_peer_count(room_code)
 
+        event_buckets: Dict[str, Deque[float]] = defaultdict(deque)
+        malformed_messages = 0
+
         while True:
             raw = await websocket.receive_text()
-
-            if len(raw) > MAX_WS_MESSAGE_BYTES:
-                limiter.violations += 1
-                if limiter.violations > MAX_VIOLATIONS_BEFORE_KICK:
-                    await websocket.close(code=4413, reason="Too many oversized messages")
-                    return
-                continue
-
-            if not limiter.allow():
-                # Silently drop -- an occasional burst is normal (fast
-                # typing, a flurry of reactions); this only bites someone
-                # sending far faster than any real UI could. If they keep
-                # hammering past all reasonable doubt, disconnect them.
-                if limiter.violations > MAX_VIOLATIONS_BEFORE_KICK:
-                    await websocket.close(code=4429, reason="Too many messages, disconnected")
-                    return
-                continue
-
+            if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
+                await websocket.close(code=1009, reason="Message too large")
+                break
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
+                malformed_messages += 1
+                if malformed_messages >= 10:
+                    await websocket.close(code=1008, reason="Too many malformed messages")
+                    break
                 continue
 
+            malformed_messages = 0
+            if not isinstance(data, dict):
+                continue
             mtype = data.get("type")
+            bucket = _event_bucket(mtype)
+            if not _allow_event(event_buckets, bucket):
+                # Drop excess events instead of disconnecting legitimate users
+                # because browsers can briefly burst ICE candidates.
+                continue
 
-            if mtype == "chat":
+            if mtype == "offer":
+                target = data.get("to")
+                await relay(room_code, target, {
+                    "type": "offer", "from": client_id,
+                    "from_name": member.name, "sdp": data.get("sdp"),
+                })
+            elif mtype == "answer":
+                target = data.get("to")
+                await relay(room_code, target, {
+                    "type": "answer", "from": client_id, "sdp": data.get("sdp"),
+                })
+            elif mtype == "ice-candidate":
+                target = data.get("to")
+                await relay(room_code, target, {
+                    "type": "ice-candidate", "from": client_id,
+                    "candidate": data.get("candidate"),
+                })
+            elif mtype == "chat":
                 text = str(data.get("text") or "")[:1000]
                 text = text.strip()
                 if not text:
@@ -337,20 +369,29 @@ async def websocket_endpoint(
                     target_member = room_members.get(dm_target_id)
                     if not target_member or dm_target_id == client_id:
                         continue
-                    await asyncio.to_thread(
-                        _persist_chat_sync, room_id, member.user_id, member.name, text,
-                        True, target_member.user_id, target_member.name, member.guest_id, target_member.guest_id,
-                    )
+                    db2 = SessionLocal()
+                    try:
+                        persist_chat(
+                            db2, room_id, member.user_id, member.name, text,
+                            is_private=True,
+                            sender_guest_id=member.guest_id,
+                            recipient_user_id=target_member.user_id,
+                            recipient_guest_id=target_member.guest_id,
+                            recipient_name=target_member.name,
+                        )
+                    finally:
+                        db2.close()
                     await target_member.send({
                         "type": "chat", "from": client_id, "name": member.name,
                         "text": text, "private": True,
                         "to": dm_target_id, "to_name": target_member.name,
                     })
                 else:
-                    await asyncio.to_thread(
-                        _persist_chat_sync, room_id, member.user_id, member.name, text,
-                        False, None, None, member.guest_id, None,
-                    )
+                    db2 = SessionLocal()
+                    try:
+                        persist_chat(db2, room_id, member.user_id, member.name, text, sender_guest_id=member.guest_id)
+                    finally:
+                        db2.close()
                     await broadcast(room_code, {
                         "type": "chat", "from": client_id,
                         "name": member.name, "text": text, "private": False,
@@ -479,14 +520,19 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         pass
     finally:
-        _total_connections -= 1
-        was_original_owner = member.is_original_owner
-        room_members.pop(client_id, None)
+        # If this connection was already replaced by a newer connection from the
+        # same user/guest, it was removed above. Do not remove or notify peers
+        # about anything again.
+        is_current_connection = room_members.get(client_id) is member
+        if is_current_connection:
+            was_original_owner = member.is_original_owner
+            room_members.pop(client_id, None)
+            revoke_turn_ticket(member.turn_ticket)
 
-        if not room_members:
+        if is_current_connection and not room_members:
             ROOMS.pop(room_code, None)
             SPOTLIGHTS.pop(room_code, None)
-        else:
+        elif is_current_connection:
             # If the room's spotlighted member just left, clear it for everyone
             # rather than leaving a stale reference (this previously only
             # happened on kick, not on a normal leave/disconnect).

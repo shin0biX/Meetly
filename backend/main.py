@@ -7,7 +7,7 @@ from starlette.responses import Response
 
 import models
 from database import engine, run_migrations
-from routes import auth, rooms, realtime, turn, livekit_token
+from routes import auth, rooms, realtime, turn
 
 # Apply additive/nullable migrations before create_all
 run_migrations()
@@ -36,7 +36,6 @@ app.include_router(auth.router)
 app.include_router(rooms.router)
 app.include_router(realtime.router)
 app.include_router(turn.router)
-app.include_router(livekit_token.router)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 if not FRONTEND_DIR.exists():

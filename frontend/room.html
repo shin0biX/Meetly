@@ -228,8 +228,8 @@
             100% { transform: translateY(-120px) scale(1); opacity: 0; }
         }
 
-        /* Reactions / background dock popovers */
-        .dock-popover {
+        /* Reactions popover */
+        #reactions-popover {
             position: absolute;
             bottom: calc(100% + 12px);
             left: 50%;
@@ -245,7 +245,7 @@
             gap: 0.5rem;
             min-width: 220px;
         }
-        .dock-popover.open { display: flex; }
+        #reactions-popover.open { display: flex; }
         .emoji-grid-btn {
             font-size: 1.4rem;
             width: 40px;
@@ -262,47 +262,6 @@
             background: rgba(99, 102, 241, 0.25);
             border-color: rgba(129, 140, 248, 0.4);
             transform: translateY(-2px);
-        }
-
-        /* Virtual background picker */
-        .bg-option-btn {
-            font-size: 0.7rem;
-            font-weight: 600;
-            width: 100%;
-            height: 44px;
-            border-radius: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            color: #cbd5e1;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid transparent;
-            transition: all 0.15s ease;
-        }
-        .bg-option-btn:hover {
-            background: rgba(99, 102, 241, 0.25);
-            border-color: rgba(129, 140, 248, 0.4);
-        }
-        .bg-option-btn.active {
-            background: #6366f1;
-            color: #fff;
-            border-color: #818cf8;
-        }
-        .bg-swatch-btn {
-            width: 100%;
-            height: 44px;
-            border-radius: 0.75rem;
-            border: 1.5px solid rgba(255,255,255,0.1);
-            transition: all 0.15s ease;
-            cursor: pointer;
-        }
-        .bg-swatch-btn:hover {
-            transform: translateY(-2px);
-        }
-        .bg-swatch-btn.active {
-            border-color: #818cf8;
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
         }
 
         .dock-btn {
@@ -491,52 +450,21 @@
             </svg>
         </button>
 
-        <!-- 2b. Switch Camera (front/back) -- shown only on devices with more than one camera -->
-        <button id="switch-cam-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden" title="Switch Camera">
-            <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-        </button>
-
-        <!-- 3. Virtual Background -->
-        <div class="relative">
-            <button id="bg-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Virtual Background">
-                <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M14 8h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-            </button>
-            <div id="bg-popover" class="dock-popover">
-                <div class="text-[11px] font-semibold text-slate-400 px-1">Background</div>
-                <div class="grid grid-cols-3 gap-2">
-                    <button class="bg-option-btn bg-option-flat" data-mode="none">None</button>
-                    <button class="bg-option-btn bg-option-flat" data-mode="blur">Blur</button>
-                    <label class="bg-option-btn bg-option-flat cursor-pointer">
-                        Upload
-                        <input type="file" id="bg-upload-input" accept="image/*" class="hidden">
-                    </label>
-                    <button class="bg-swatch-btn" data-mode="image" data-preset="office" style="background:linear-gradient(135deg,#1e293b,#334155)" title="Office"></button>
-                    <button class="bg-swatch-btn" data-mode="image" data-preset="studio" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)" title="Studio"></button>
-                    <button class="bg-swatch-btn" data-mode="image" data-preset="warm" style="background:linear-gradient(135deg,#78350f,#d97706)" title="Warm"></button>
-                    <button class="bg-swatch-btn" data-mode="image" data-preset="cool" style="background:linear-gradient(135deg,#0c4a6e,#0ea5e9)" title="Cool"></button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. Screen Share Button -->
+        <!-- 3. Screen Share Button -->
         <button id="screen-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex" title="Share Screen">
             <svg id="screen-icon" class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
         </button>
 
-        <!-- 5. Reactions: raise hand + quick emoji -->
+        <!-- 4. Reactions: raise hand + quick emoji -->
         <div class="relative">
             <button id="reactions-btn" class="dock-btn bg-slate-800 hover:bg-slate-700 text-white" title="Reactions">
                 <svg class="w-5 h-5 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </button>
-            <div id="reactions-popover" class="dock-popover">
+            <div id="reactions-popover">
                 <button id="raise-hand-btn" class="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-200 bg-white/5 hover:bg-white/10 transition-colors">
                     <span class="text-base">✋</span>
                     <span id="raise-hand-label">Raise Hand</span>
@@ -612,8 +540,7 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.14/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/api.js?v=13"></script>
-    <script src="/js/room.js?v=13"></script>
+    <script src="/js/api.js?v=10"></script>
+    <script src="/js/room.js?v=10"></script>
 </body>
 </html>
