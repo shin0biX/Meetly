@@ -4,6 +4,7 @@ Supports authenticated users and guests. Guest identity is bound to a server-sig
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import secrets
 import time
@@ -26,6 +27,9 @@ router = APIRouter(tags=["realtime"])
 # WebSocket abuse limits. These are intentionally generous for WebRTC signaling
 # while keeping chat/reaction spam from overwhelming a room or the server.
 MAX_WS_MESSAGE_BYTES = 64 * 1024
+# Clients must authenticate promptly after the WebSocket is accepted. This prevents
+# idle unauthenticated connections from consuming server resources indefinitely.
+WS_AUTH_TIMEOUT_SECONDS = 10
 RATE_LIMITS: Dict[str, Tuple[int, float]] = {
     "chat": (8, 10.0),
     "reaction": (15, 5.0),
@@ -204,14 +208,22 @@ async def websocket_endpoint(
 
     await websocket.accept()
 
-    # 1) Wait for auth/join message
+    # 1) Wait briefly for the required authentication message. Do not allow
+    # unauthenticated clients to keep an accepted WebSocket open indefinitely.
     try:
-        raw = await websocket.receive_text()
+        raw = await asyncio.wait_for(
+            websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_SECONDS
+        )
         if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
             await websocket.close(code=1009, reason="Message too large")
             return
         data = json.loads(raw)
-    except Exception:
+    except asyncio.TimeoutError:
+        await websocket.close(code=4408, reason="Authentication timeout")
+        return
+    except WebSocketDisconnect:
+        return
+    except (json.JSONDecodeError, ValueError, TypeError):
         await websocket.close(code=4401, reason="Expected auth message")
         return
 
