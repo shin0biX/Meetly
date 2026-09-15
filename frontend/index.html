@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Pure Video Communication</title>
+    <link rel="stylesheet" href="/styles.css?v=2">
+</head>
+<body style="min-h-screen: 100vh; display: flex; flex-direction: column; justify-content: space-between;">
+
+    <!-- Top Navbar -->
+    <header class="nav-header">
+        <a href="/index.html" class="brand-logo">
+            <span class="brand-dot"></span>
+            <span>MEETLY</span>
+        </a>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <button id="nav-signin-btn" class="btn btn-outline" style="border-radius: var(--radius-full); padding: 0.4rem 1.25rem; font-size: 0.8125rem;">
+                Sign In
+            </button>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <main style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem 1.5rem; max-width: 1000px; margin: 0 auto; text-align: center; gap: 2.5rem;">
+        
+        <!-- Editorial Headline -->
+        <div style="display: flex; flex-direction: column; gap: 1rem; max-width: 760px;">
+            <div class="label-uppercase" style="letter-spacing: 0.15em; color: var(--accent);">Spatial Video Infrastructure</div>
+            <h1 class="text-display">
+                Meet without <br/>
+                <span style="font-weight: 400; font-style: italic;">the friction.</span>
+            </h1>
+            <p class="text-subtitle" style="max-width: 520px; margin: 0.5rem auto 0 auto; line-height: 1.6;">
+                Ultra-low latency peer-to-peer audio and video calls built with modernist simplicity. No downloads, no bloat.
+            </p>
+        </div>
+
+        <!-- Action CTA Buttons -->
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; align-items: center;">
+            <button id="hero-create-btn" class="btn btn-primary" style="padding: 0.875rem 2rem; border-radius: var(--radius-full); font-size: 0.9375rem; box-shadow: var(--shadow-md);">
+                Create a Room &rarr;
+            </button>
+            <button id="hero-auth-btn" class="btn btn-secondary" style="padding: 0.875rem 2rem; border-radius: var(--radius-full); font-size: 0.9375rem;">
+                Sign In to Dashboard
+            </button>
+        </div>
+
+        <!-- Spatial 3D Graphic Element -->
+        <div class="spatial-container" style="width: 100%; max-width: 720px; margin-top: 1rem;">
+            <div class="spatial-card" style="display: flex; flex-direction: column; gap: 1.5rem; background: var(--bg-elevated); border-radius: var(--radius-xl); border: 1px solid var(--border);">
+                <!-- Mockup Room Bar -->
+                <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #2E7D32; display: inline-block;"></span>
+                        <span class="font-mono" style="font-size: 0.8125rem; color: var(--fg-secondary);">ROOM / STUDIO-ALPHA</span>
+                    </div>
+                    <div class="label-uppercase" style="background: var(--accent-subtle); color: var(--accent); padding: 0.25rem 0.625rem; border-radius: var(--radius-full);">
+                        Live Mesh &bull; 0ms
+                    </div>
+                </div>
+
+                <!-- Mockup Video Stage Grid -->
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; min-height: 200px;">
+                    <div style="background: #141414; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; color: #666666; font-size: 0.8125rem; border: 1px solid rgba(255,255,255,0.05); position: relative; overflow: hidden;">
+                        <div style="position: absolute; bottom: 0.75rem; left: 0.75rem; background: rgba(0,0,0,0.6); color: #fff; padding: 0.25rem 0.625rem; border-radius: 4px; font-size: 0.75rem;">
+                            Studio Canvas &bull; Primary
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        <div style="flex: 1; background: #1C1C1C; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: #555; font-size: 0.75rem;">
+                            Peer 01
+                        </div>
+                        <div style="flex: 1; background: #1C1C1C; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: #555; font-size: 0.75rem;">
+                            Peer 02
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer style="width: 100%; max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); font-size: 0.8125rem; color: var(--fg-tertiary);">
+        <div>Meetly &copy; 2026 &bull; Architectural Video Infrastructure</div>
+        <div style="display: flex; gap: 1.5rem;">
+            <span>WebRTC P2P Mesh</span>
+            <span>FastAPI Realtime</span>
+        </div>
+    </footer>
+
+    <!-- AUTH MODAL OVERLAY -->
+    <div id="auth-modal" class="modal-overlay">
+        <div class="modal-content">
+            
+            <!-- Modal Header with Close Button -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <div style="font-size: 1.125rem; font-weight: 600; letter-spacing: -0.02em;">Account Access</div>
+                <button id="close-auth-modal" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--fg-secondary); padding: 0.25rem;">&times;</button>
+            </div>
+
+            <!-- Segmented Control Tabs -->
+            <div class="segmented-control" style="margin-bottom: 1.25rem;">
+                <button id="tab-login" class="segmented-btn active">Sign In</button>
+                <button id="tab-register" class="segmented-btn">Create Account</button>
+            </div>
+
+            <!-- Alert Boxes -->
+            <div id="error-box" class="alert alert-error" style="display: none; margin-bottom: 1rem;">
+                <span id="error-text"></span>
+            </div>
+            <div id="info-box" class="alert alert-info" style="display: none; margin-bottom: 1rem;">
+                <span id="info-text"></span>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <form id="login-form" style="display: flex; flex-direction: column; gap: 1rem;" onsubmit="return false;">
+                <div class="input-group">
+                    <label class="label-uppercase" for="login-username">Username</label>
+                    <input id="login-username" type="text" autocomplete="username" placeholder="Username" class="input">
+                </div>
+
+                <div class="input-group">
+                    <label class="label-uppercase" for="login-password">Password</label>
+                    <div style="position: relative;">
+                        <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" class="input" style="padding-right: 2.5rem;">
+                        <button type="button" class="toggle-password" data-target="login-password" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--fg-tertiary); cursor: pointer; font-size: 0.75rem;">
+                            View
+                        </button>
+                    </div>
+                </div>
+
+                <button id="login-btn" class="btn btn-primary" style="margin-top: 0.5rem; padding: 0.75rem;">
+                    Sign In &rarr;
+                </button>
+            </form>
+
+            <!-- REGISTER FORM -->
+            <form id="register-form" style="display: none; flex-direction: column; gap: 1rem;" onsubmit="return false;">
+                <div class="input-group">
+                    <label class="label-uppercase" for="reg-fullname">Full Name</label>
+                    <input id="reg-fullname" type="text" placeholder="Alex Morgan" class="input">
+                </div>
+
+                <div class="input-group">
+                    <label class="label-uppercase" for="reg-email">Email Address</label>
+                    <input id="reg-email" type="email" placeholder="alex@example.com" class="input">
+                </div>
+
+                <div class="input-group">
+                    <label class="label-uppercase" for="reg-username">Username</label>
+                    <input id="reg-username" type="text" placeholder="alex" class="input">
+                </div>
+
+                <div class="input-group">
+                    <label class="label-uppercase" for="reg-password">Password</label>
+                    <div style="position: relative;">
+                        <input id="reg-password" type="password" placeholder="At least 6 characters" class="input" style="padding-right: 2.5rem;">
+                        <button type="button" class="toggle-password" data-target="reg-password" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--fg-tertiary); cursor: pointer; font-size: 0.75rem;">
+                            View
+                        </button>
+                    </div>
+                </div>
+
+                <button id="register-btn" class="btn btn-primary" style="margin-top: 0.5rem; padding: 0.75rem;">
+                    Create Account &rarr;
+                </button>
+            </form>
+
+        </div>
+    </div>
+
+    <script src="/js/api.js?v=14"></script>
+    <script>
+        const authModal = document.getElementById('auth-modal');
+        const closeAuthModal = document.getElementById('close-auth-modal');
+        const navSigninBtn = document.getElementById('nav-signin-btn');
+        const heroAuthBtn = document.getElementById('hero-auth-btn');
+        const heroCreateBtn = document.getElementById('hero-create-btn');
+
+        function openModal(mode = 'login') {
+            setTab(mode);
+            authModal.classList.add('open');
+        }
+
+        function closeModal() {
+            authModal.classList.remove('open');
+        }
+
+        navSigninBtn.addEventListener('click', () => openModal('login'));
+        heroAuthBtn.addEventListener('click', () => openModal('login'));
+        closeAuthModal.addEventListener('click', closeModal);
+
+        heroCreateBtn.addEventListener('click', () => {
+            if (API.getToken()) {
+                window.location.href = '/dashboard.html';
+            } else {
+                openModal('login');
+            }
+        });
+
+        const errorBox = document.getElementById('error-box');
+        const errorText = document.getElementById('error-text');
+        const infoBox = document.getElementById('info-box');
+        const infoText = document.getElementById('info-text');
+
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorBox.style.display = 'flex';
+            infoBox.style.display = 'none';
+        }
+
+        function showInfo(msg) {
+            infoText.textContent = msg;
+            infoBox.style.display = 'flex';
+            errorBox.style.display = 'none';
+        }
+
+        function clearAlerts() {
+            errorBox.style.display = 'none';
+            infoBox.style.display = 'none';
+        }
+
+        // Segmented tab switching
+        const tabLogin = document.getElementById('tab-login');
+        const tabRegister = document.getElementById('tab-register');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+
+        function setTab(mode) {
+            clearAlerts();
+            if (mode === 'login') {
+                tabLogin.className = 'segmented-btn active';
+                tabRegister.className = 'segmented-btn';
+                loginForm.style.display = 'flex';
+                registerForm.style.display = 'none';
+                setTimeout(() => document.getElementById('login-username').focus(), 50);
+            } else {
+                tabRegister.className = 'segmented-btn active';
+                tabLogin.className = 'segmented-btn';
+                registerForm.style.display = 'flex';
+                loginForm.style.display = 'none';
+                setTimeout(() => document.getElementById('reg-fullname').focus(), 50);
+            }
+        }
+
+        tabLogin.addEventListener('click', () => setTab('login'));
+        tabRegister.addEventListener('click', () => setTab('register'));
+
+        // Toggle password visibility
+        document.querySelectorAll('.toggle-password').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetId = btn.getAttribute('data-target');
+                const input = document.getElementById(targetId);
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.textContent = 'Hide';
+                } else {
+                    input.type = 'password';
+                    btn.textContent = 'View';
+                }
+            });
+        });
+
+        // Sign In Action
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            if (!username || !password) return showError('Please fill in your username and password.');
+            
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+
+            try {
+                const body = new URLSearchParams({ username, password });
+                const res = await apiFetch('/auth/token', { method: 'POST', body });
+                API.setToken(res.access_token);
+                if (res.refresh_token) API.setRefreshToken(res.refresh_token);
+                API.setUser({ username: res.username });
+                showToast('Welcome back, ' + res.username + '!', 'success');
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirect = urlParams.get('redirect') || '/dashboard.html';
+                setTimeout(() => { window.location.href = redirect; }, 300);
+            } catch (err) {
+                showError(err.message);
+                btn.disabled = false;
+                btn.textContent = 'Sign In →';
+            }
+        });
+
+        // Register Action
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            const full_name = document.getElementById('reg-fullname').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const username = document.getElementById('reg-username').value.trim();
+            const password = document.getElementById('reg-password').value;
+            
+            if (!username || !email || !password) return showError('Please fill in all required fields.');
+            if (password.length < 6) return showError('Password must be at least 6 characters.');
+
+            const btn = document.getElementById('register-btn');
+            btn.disabled = true;
+            btn.textContent = 'Creating account...';
+
+            try {
+                await apiFetch('/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, email, full_name, password })
+                });
+                showInfo('Account created! Authenticating...');
+                const body = new URLSearchParams({ username, password });
+                const res = await apiFetch('/auth/token', { method: 'POST', body });
+                API.setToken(res.access_token);
+                if (res.refresh_token) API.setRefreshToken(res.refresh_token);
+                API.setUser({ username: res.username });
+                showToast('Account created successfully!', 'success');
+                const urlParams = new URLSearchParams(window.location.search);
+                const redirect = urlParams.get('redirect') || '/dashboard.html';
+                setTimeout(() => { window.location.href = redirect; }, 400);
+            } catch (err) {
+                showError(err.message);
+                btn.disabled = false;
+                btn.textContent = 'Create Account →';
+            }
+        });
+
+        // Enter key handling
+        document.querySelectorAll('input').forEach(inp => {
+            inp.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    if (registerForm.style.display === 'none') {
+                        document.getElementById('login-btn').click();
+                    } else {
+                        document.getElementById('register-btn').click();
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

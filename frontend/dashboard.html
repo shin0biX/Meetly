@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Dashboard</title>
+    <link rel="stylesheet" href="/styles.css?v=2">
+</head>
+<body style="min-height: 100vh; display: flex; flex-direction: column; background-color: var(--bg);">
+
+    <!-- Header Navigation -->
+    <header style="background-color: var(--bg-elevated); border-bottom: 1px solid var(--border); padding: 1rem 1.5rem; position: sticky; top: 0; z-index: 30;">
+        <div style="max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between;">
+            
+            <a href="/dashboard.html" class="brand-logo">
+                <span class="brand-dot"></span>
+                <span>MEETLY</span>
+            </a>
+
+            <!-- User Menu -->
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.75rem 0.25rem 0.375rem; border-radius: var(--radius-full); background: var(--bg-surface); border: 1px solid var(--border);">
+                    <div id="user-avatar" style="width: 24px; height: 24px; border-radius: 50%; background: var(--fg); color: #fff; font-size: 0.6875rem; font-weight: 700; display: flex; align-items: center; justify-content: center;">
+                        ?
+                    </div>
+                    <span id="user-name" style="font-size: 0.8125rem; font-weight: 600; color: var(--fg);">User</span>
+                </div>
+
+                <button id="logout-btn" title="Sign out" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; border-radius: var(--radius-md);">
+                    Sign Out
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main style="flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 2.5rem 1.5rem; display: flex; flex-direction: column; gap: 3rem;">
+
+        <!-- Section 1: Actions Grid -->
+        <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+            
+            <!-- Quick Start Card -->
+            <div class="card card-hover" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem; border-top: 3px solid var(--accent);">
+                <div>
+                    <div class="label-uppercase" style="color: var(--accent); margin-bottom: 0.375rem;">Instant</div>
+                    <h2 style="font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em;">Instant Meeting</h2>
+                    <p style="font-size: 0.8125rem; color: var(--fg-secondary); margin-top: 0.375rem; line-height: 1.5;">
+                        Launch an immediate room and invite participants with a single click.
+                    </p>
+                </div>
+                <button id="quick-start-btn" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 0.75rem;">
+                    Start Meeting Now &rarr;
+                </button>
+            </div>
+
+            <!-- Join Room Card -->
+            <div class="card card-hover" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem;">
+                <div>
+                    <div class="label-uppercase" style="margin-bottom: 0.375rem;">Join</div>
+                    <h2 style="font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em;">Join via Code</h2>
+                    <p style="font-size: 0.8125rem; color: var(--fg-secondary); margin-top: 0.375rem; line-height: 1.5;">
+                        Enter a unique meeting identifier to connect directly to an active session.
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input id="join-code-input" type="text" placeholder="e.g. 7F3A9B" maxlength="20" class="input input-mono" style="flex: 1;">
+                    <button id="join-code-btn" class="btn btn-dark" style="padding: 0.625rem 1.25rem;">
+                        Join &rarr;
+                    </button>
+                </div>
+            </div>
+
+            <!-- Custom Room Card -->
+            <div class="card card-hover" style="display: flex; flex-direction: column; justify-content: space-between; gap: 1.5rem;">
+                <div>
+                    <div class="label-uppercase" style="margin-bottom: 0.375rem;">Host</div>
+                    <h2 style="font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em;">Custom Room</h2>
+                    <p style="font-size: 0.8125rem; color: var(--fg-secondary); margin-top: 0.375rem; line-height: 1.5;">
+                        Create a permanent meeting space with custom naming and host controls.
+                    </p>
+                </div>
+                <button id="open-create-modal" class="btn btn-secondary" style="width: 100%; justify-content: center; padding: 0.75rem;">
+                    Configure Room &rarr;
+                </button>
+            </div>
+
+        </section>
+
+        <!-- Section 2: Room History & Management -->
+        <section style="display: flex; flex-direction: column; gap: 1.25rem;">
+            
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.625rem;">
+                    <h2 style="font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em;">My Rooms</h2>
+                    <span id="rooms-count-badge" class="font-mono" style="font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: var(--radius-full); background: var(--bg-surface); border: 1px solid var(--border); color: var(--fg-secondary);">
+                        0
+                    </span>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input id="search-rooms" type="text" placeholder="Filter rooms..." class="input" style="padding: 0.4rem 0.75rem; font-size: 0.8125rem; width: 200px;">
+                    <button id="refresh-rooms-btn" title="Refresh room list" class="btn btn-outline btn-icon" style="padding: 0.4rem 0.625rem;">
+                        <svg id="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Rooms Grid -->
+            <div id="rooms-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem;">
+                <!-- Loading State -->
+                <div class="card" style="opacity: 0.5; height: 120px; display: flex; align-items: center; justify-content: center; font-size: 0.8125rem; color: var(--fg-tertiary);">
+                    Loading rooms...
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- CUSTOM ROOM MODAL -->
+    <div id="create-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <div style="font-size: 1.125rem; font-weight: 600;">New Custom Room</div>
+                <button id="close-modal-btn" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--fg-secondary);">&times;</button>
+            </div>
+
+            <div id="modal-error" class="alert alert-error" style="display: none; margin-bottom: 1rem;"></div>
+
+            <form id="custom-room-form" style="display: flex; flex-direction: column; gap: 1rem;" onsubmit="return false;">
+                <div class="input-group">
+                    <label class="label-uppercase">Room Name</label>
+                    <input id="modal-room-name" type="text" placeholder="e.g. Design Sync" maxlength="60" class="input">
+                </div>
+
+                <div class="input-group">
+                    <label class="label-uppercase">Custom Room Code (Optional)</label>
+                    <input id="modal-room-code" type="text" placeholder="e.g. design1" maxlength="20" class="input input-mono">
+                    <span style="font-size: 0.75rem; color: var(--fg-tertiary);">Leave empty for auto-generated code.</span>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+                    <button type="button" id="cancel-modal-btn" class="btn btn-outline" style="flex: 1;">Cancel</button>
+                    <button type="submit" id="submit-custom-room" class="btn btn-primary" style="flex: 1;">Create &amp; Enter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer style="width: 100%; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; text-align: center; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--fg-tertiary);">
+        Meetly &copy; 2026 &bull; Architectural Video Infrastructure
+    </footer>
+
+    <script src="/js/api.js?v=14"></script>
+    <script>
+        if (!API.getToken()) {
+            window.location.href = '/index.html';
+        }
+
+        refreshSession();
+
+        const user = API.getUser();
+        if (user && user.username) {
+            document.getElementById('user-name').textContent = user.username;
+            document.getElementById('user-avatar').textContent = user.username.substring(0, 2).toUpperCase();
+        }
+
+        let allRooms = [];
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const joinParam = urlParams.get('join') || urlParams.get('room');
+        if (joinParam) {
+            document.getElementById('join-code-input').value = joinParam;
+        }
+
+        function goToRoom(code) {
+            const cleanCode = code.toLowerCase().trim();
+            sessionStorage.setItem('meetly_room', cleanCode);
+            window.location.href = `/room.html?room=${cleanCode}`;
+        }
+
+        async function fetchPeerCount(code) {
+            try {
+                const data = await apiFetch(`/rooms/${code}/peers`);
+                return data.count || 0;
+            } catch {
+                return 0;
+            }
+        }
+
+        async function loadRooms() {
+            const refreshIcon = document.getElementById('refresh-icon');
+            refreshIcon.style.transform = 'rotate(180deg)';
+            refreshIcon.style.transition = 'transform 0.4s ease';
+
+            try {
+                const rooms = await apiFetch('/rooms/');
+                allRooms = rooms;
+                document.getElementById('rooms-count-badge').textContent = rooms.length;
+                renderRooms(rooms);
+            } catch (err) {
+                document.getElementById('rooms-grid').innerHTML = `
+                    <div class="alert alert-error" style="grid-column: 1 / -1;">
+                        ${escapeHtml(err.message)}
+                    </div>
+                `;
+            } finally {
+                setTimeout(() => { refreshIcon.style.transform = 'none'; }, 400);
+            }
+        }
+
+        async function renderRooms(roomsToRender) {
+            const grid = document.getElementById('rooms-grid');
+
+            if (!roomsToRender || roomsToRender.length === 0) {
+                grid.innerHTML = `
+                    <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 3rem 1.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                        <div style="font-size: 0.9375rem; font-weight: 500;">No meeting rooms created yet</div>
+                        <div style="font-size: 0.8125rem; color: var(--fg-tertiary); max-width: 360px;">
+                            Launch an instant meeting or set up a custom room above to get started.
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const counts = await Promise.all(roomsToRender.map(r => fetchPeerCount(r.code)));
+
+            grid.innerHTML = '';
+            roomsToRender.forEach((room, index) => {
+                const count = counts[index] || 0;
+                const card = document.createElement('div');
+                card.className = 'card card-hover';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.justifySpaceBetween = 'space-between';
+                card.style.gap = '1rem';
+                
+                card.innerHTML = `
+                    <div>
+                        <div style="display: flex; items-center: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <h3 style="font-size: 1rem; font-weight: 600; letter-spacing: -0.01em;">
+                                ${escapeHtml(room.name)}
+                            </h3>
+                            <span class="conn-status" style="font-size: 0.6875rem; background: var(--bg-surface); padding: 0.2rem 0.5rem; border-radius: var(--radius-full); border: 1px solid var(--border);">
+                                <span class="conn-dot ${count > 0 ? 'pulse' : ''}" style="background-color: ${count > 0 ? '#2E7D32' : 'var(--fg-tertiary)'};"></span>
+                                <span>${count} active</span>
+                            </span>
+                        </div>
+                        
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="font-mono" style="font-size: 0.75rem; background: var(--bg-surface); border: 1px solid var(--border); padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); color: var(--fg-secondary);">
+                                ${escapeHtml(room.code)}
+                            </span>
+                            <button class="copy-link-btn btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" data-code="${escapeHtml(room.code)}" title="Copy invite link">
+                                Copy Link
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="padding-top: 0.75rem; border-top: 1px solid var(--border-subtle); display: flex; gap: 0.5rem;">
+                        <button class="join-btn btn btn-primary" style="flex: 1; padding: 0.5rem; font-size: 0.8125rem;" data-code="${escapeHtml(room.code)}">
+                            Enter Meeting &rarr;
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+
+            grid.querySelectorAll('.join-btn').forEach(btn => {
+                btn.addEventListener('click', () => goToRoom(btn.dataset.code));
+            });
+
+            grid.querySelectorAll('.copy-link-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const shareUrl = `${window.location.origin}/room.html?room=${btn.dataset.code}`;
+                    copyToClipboard(shareUrl, `Invite link copied to clipboard!`);
+                });
+            });
+        }
+
+        // Quick Start
+        document.getElementById('quick-start-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('quick-start-btn');
+            btn.disabled = true;
+            btn.textContent = 'Launching...';
+
+            try {
+                const room = await apiFetch('/rooms/', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: `${user?.username || 'User'}'s Meeting` })
+                });
+                goToRoom(room.code);
+            } catch (err) {
+                showToast(err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Start Meeting Now →';
+            }
+        });
+
+        // Join via Code
+        function handleJoinByCode() {
+            const codeInput = document.getElementById('join-code-input');
+            const code = codeInput.value.trim().toLowerCase();
+            if (!code) {
+                showToast('Please enter a room code', 'error');
+                codeInput.focus();
+                return;
+            }
+            goToRoom(code);
+        }
+
+        document.getElementById('join-code-btn').addEventListener('click', handleJoinByCode);
+        document.getElementById('join-code-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleJoinByCode();
+        });
+
+        // Search rooms
+        document.getElementById('search-rooms').addEventListener('input', (e) => {
+            const query = e.target.value.trim().toLowerCase();
+            const filtered = allRooms.filter(r => 
+                r.name.toLowerCase().includes(query) || r.code.toLowerCase().includes(query)
+            );
+            renderRooms(filtered);
+        });
+
+        document.getElementById('refresh-rooms-btn').addEventListener('click', loadRooms);
+
+        // Modal
+        const createModal = document.getElementById('create-modal');
+        const modalError = document.getElementById('modal-error');
+
+        document.getElementById('open-create-modal').addEventListener('click', () => {
+            modalError.style.display = 'none';
+            document.getElementById('modal-room-name').value = '';
+            document.getElementById('modal-room-code').value = '';
+            createModal.classList.add('open');
+            setTimeout(() => document.getElementById('modal-room-name').focus(), 50);
+        });
+
+        function closeModal() {
+            createModal.classList.remove('open');
+        }
+
+        document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+        document.getElementById('cancel-modal-btn').addEventListener('click', closeModal);
+
+        document.getElementById('submit-custom-room').addEventListener('click', async () => {
+            modalError.style.display = 'none';
+            const name = document.getElementById('modal-room-name').value.trim();
+            const code = document.getElementById('modal-room-code').value.trim().toLowerCase();
+
+            try {
+                const room = await apiFetch('/rooms/', {
+                    method: 'POST',
+                    body: JSON.stringify({ name: name || undefined, code: code || undefined })
+                });
+                closeModal();
+                goToRoom(room.code);
+            } catch (err) {
+                modalError.textContent = err.message;
+                modalError.style.display = 'flex';
+            }
+        });
+
+        // Logout: revoke the refresh token server-side before clearing local
+        // credentials. If the network is unavailable, still clear the browser
+        // session so the user is not trapped on the dashboard.
+        document.getElementById('logout-btn').addEventListener('click', async () => {
+            const refreshToken = API.getRefreshToken();
+            try {
+                if (refreshToken) {
+                    await fetch('/auth/logout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refresh_token: refreshToken }),
+                        keepalive: true,
+                    });
+                }
+            } catch (_) {
+                // Local logout remains authoritative for this browser.
+            } finally {
+                API.removeToken();
+                API.setUser(null);
+                showToast('Signed out', 'info');
+                setTimeout(() => { window.location.href = '/index.html'; }, 200);
+            }
+        });
+
+        loadRooms();
+    </script>
+</body>
+</html>

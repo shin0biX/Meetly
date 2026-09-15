@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Meetly — Live Room</title>
+    <link rel="stylesheet" href="/styles.css?v=2">
+</head>
+<body class="room-body">
+
+    <!-- Top Navigation Header Bar -->
+    <header class="room-header">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <a href="/dashboard.html" class="brand-logo">
+                <span class="brand-dot"></span>
+                <span>MEETLY</span>
+            </a>
+
+            <div style="width: 1px; height: 16px; background-color: var(--border);"></div>
+
+            <!-- Room Code Pill with Copy -->
+            <button id="copy-room-pill" class="room-code-pill" title="Click to copy room code">
+                <span style="font-size: 0.6875rem; color: var(--fg-tertiary); text-transform: uppercase;">ROOM /</span>
+                <span id="room-code-label" style="color: var(--accent);">...</span>
+            </button>
+
+            <!-- Share Link Button -->
+            <button id="header-share-btn" class="btn btn-outline" style="padding: 0.25rem 0.75rem; font-size: 0.75rem; border-radius: var(--radius-full);">
+                Share Invite Link
+            </button>
+
+            <!-- Host Badge -->
+            <span id="host-badge" class="label-uppercase" style="display: none; background-color: var(--fg); color: #FFFFFF; padding: 0.25rem 0.625rem; border-radius: var(--radius-full);">
+                Host
+            </span>
+        </div>
+
+        <!-- Connection Indicator & Timer -->
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div id="call-timer" class="font-mono" style="font-size: 0.8125rem; color: var(--fg-secondary); background: var(--bg-surface); padding: 0.25rem 0.625rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                00:00:00
+            </div>
+
+            <div id="conn-badge" class="conn-status">
+                <span class="conn-dot pulse"></span>
+                <span id="conn-status-text">Connected</span>
+            </div>
+
+            <button id="header-leave-btn" class="btn btn-danger" style="display: none; padding: 0.25rem 0.625rem; font-size: 0.75rem; border-radius: var(--radius-sm);">
+                Leave
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Spatial Canvas Stage -->
+    <div class="canvas-stage">
+        
+        <!-- Video Grid Workspace -->
+        <main id="stage-area" class="video-grid-container">
+            <div id="video-grid" class="grid-1">
+                <!-- Video tiles injected dynamically by room.js -->
+            </div>
+
+            <!-- Floating Emoji Reactions Container -->
+            <div id="reaction-overlay" style="position: absolute; inset: 0; pointer-events: none; z-index: 35; overflow: hidden;"></div>
+
+            <!-- Empty Room Overlay Hint -->
+            <div id="empty-hint" style="display: none; position: absolute; inset: 0; margin: auto; max-width: 360px; height: fit-content; text-align: center; background: var(--bg-elevated); padding: 2rem; border-radius: var(--radius-xl); border: 1px solid var(--border); box-shadow: var(--shadow-md); pointer-events: auto;">
+                <div class="label-uppercase" style="color: var(--accent); margin-bottom: 0.5rem;">Waiting Room</div>
+                <h3 style="font-size: 1.125rem; font-weight: 500; margin-bottom: 0.5rem;">You are the first participant</h3>
+                <p style="font-size: 0.8125rem; color: var(--fg-secondary); margin-bottom: 1.25rem; line-height: 1.5;">
+                    Share the meeting code or invite link to allow others to join immediately.
+                </p>
+                <button id="empty-copy-btn" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                    Copy Invite Link
+                </button>
+            </div>
+        </main>
+
+        <!-- Right Side Floating Panel / Drawer (Chat & Participants) -->
+        <aside id="side-drawer" class="floating-drawer">
+            <!-- Header Tabs -->
+            <div class="drawer-header">
+                <div class="segmented-control" style="flex: 1; margin-right: 0.75rem;">
+                    <button id="drawer-tab-chat" class="segmented-btn active">Chat</button>
+                    <button id="drawer-tab-people" class="segmented-btn">
+                        People (<span id="people-count-pill">1</span>)
+                    </button>
+                </div>
+                <button id="close-drawer-btn" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--fg-secondary); padding: 0.25rem;">&times;</button>
+            </div>
+
+            <!-- CHAT VIEW -->
+            <div id="drawer-view-chat" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <div id="chat-messages" class="drawer-body">
+                    <div style="text-align: center; font-size: 0.75rem; color: var(--fg-tertiary); padding: 1rem 0;">
+                        Messages are saved for room participants.
+                    </div>
+                </div>
+
+                <div style="padding: 0.875rem; border-top: 1px solid var(--border); background-color: var(--bg-surface); display: flex; flex-direction: column; gap: 0.5rem;">
+                    <select id="chat-target-select" class="input" style="font-size: 0.75rem; padding: 0.375rem 0.625rem;">
+                        <option value="">Everyone</option>
+                    </select>
+                    <form id="chat-form" style="display: flex; gap: 0.5rem;" onsubmit="return false;">
+                        <input id="chat-input" type="text" placeholder="Type a message..." autocomplete="off" class="input" style="flex: 1; font-size: 0.8125rem; padding: 0.5rem 0.75rem;">
+                        <button id="chat-send" type="submit" class="btn btn-primary" style="padding: 0.5rem 0.875rem;">
+                            Send
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- PEOPLE VIEW -->
+            <div id="drawer-view-people" style="display: none; flex: 1; flex-direction: column; padding: 1rem; gap: 1rem; overflow-y: auto;">
+                <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.875rem; display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <div style="font-size: 0.8125rem; font-weight: 600;">Invite Link</div>
+                        <div style="font-size: 0.75rem; color: var(--fg-secondary);">Guests can join without an account</div>
+                    </div>
+                    <button id="drawer-share-btn" class="btn btn-outline" style="padding: 0.375rem 0.75rem; font-size: 0.75rem;">
+                        Copy Link
+                    </button>
+                </div>
+
+                <div class="label-uppercase">Active Participants</div>
+                <div id="people-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Participants list rendered dynamically by room.js -->
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Floating Dock Controls -->
+    <footer class="dock-container">
+        <!-- Mic Button -->
+        <button id="mic-btn" class="dock-btn" title="Toggle Microphone (M)">
+            <svg id="mic-icon-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <svg id="mic-icon-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" style="display: none;"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
+
+        <!-- Cam Button -->
+        <button id="cam-btn" class="dock-btn" title="Toggle Camera (V)">
+            <svg id="cam-icon-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <svg id="cam-icon-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" style="display: none;"><line x1="1" y1="1" x2="23" y2="23"/><path d="M21 21l-4.35-4.35L16 15l-3-3-3-3-3-3L2 2"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        </button>
+
+        <!-- Screen Share Button -->
+        <button id="screen-btn" class="dock-btn" title="Share Screen">
+            <svg id="screen-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </button>
+
+        <!-- Reactions Popover Toggle -->
+        <div style="position: relative;">
+            <button id="reactions-btn" class="dock-btn" title="Reactions">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+            </button>
+            <div id="reactions-popover">
+                <button id="raise-hand-btn" class="btn btn-outline" style="width: 100%; justify-content: flex-start; gap: 0.5rem; padding: 0.5rem; font-size: 0.8125rem;">
+                    <span>✋</span>
+                    <span id="raise-hand-label">Raise Hand</span>
+                </button>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.375rem; margin-top: 0.25rem;">
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="👍">👍</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="❤️">❤️</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😂">😂</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😮">😮</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="🎉">🎉</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="👏">👏</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="😢">😢</button>
+                    <button class="emoji-grid-btn reaction-emoji-btn" data-emoji="🤔">🤔</button>
+                </div>
+            </div>
+        </div>
+
+        <div style="width: 1px; height: 20px; background-color: var(--border);"></div>
+
+        <!-- Chat Drawer Button -->
+        <button id="chat-drawer-btn" class="dock-btn" title="Open Chat (C)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span id="unread-badge" style="display: none; position: absolute; top: 2px; right: 2px; background: var(--accent); color: #fff; border-radius: 50%; width: 14px; height: 14px; font-size: 9px; font-weight: 700; align-items: center; justify-content: center;">0</span>
+        </button>
+
+        <!-- People Drawer Button -->
+        <button id="people-drawer-btn" class="dock-btn" title="Participants">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </button>
+
+        <!-- Leave Call Button -->
+        <button id="leave-btn" class="dock-btn btn-leave" title="Leave Call">
+            <span style="font-size: 0.8125rem; font-weight: 600;">Leave</span>
+        </button>
+    </footer>
+
+    <!-- GUEST ACCESS MODAL -->
+    <div id="guest-modal" class="modal-overlay">
+        <div class="modal-content" style="text-align: center;">
+            <div class="label-uppercase" style="color: var(--accent); margin-bottom: 0.375rem;">Guest Join</div>
+            <h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem;">Enter Room <span id="modal-room-code-tag" class="font-mono" style="color: var(--accent);">...</span></h3>
+            <p style="font-size: 0.8125rem; color: var(--fg-secondary); margin-bottom: 1.5rem;">
+                Provide a display name to join this call.
+            </p>
+
+            <form id="guest-name-form" style="display: flex; flex-direction: column; gap: 1rem; text-align: left;" onsubmit="return false;">
+                <div class="input-group">
+                    <label class="label-uppercase" for="guest-name-input">Display Name</label>
+                    <input id="guest-name-input" type="text" placeholder="e.g. Sarah Connor" maxlength="30" class="input">
+                </div>
+
+                <button type="submit" id="guest-join-btn" class="btn btn-primary" style="padding: 0.75rem; justify-content: center;">
+                    Join Meeting &rarr;
+                </button>
+
+                <div style="text-align: center; margin-top: 0.5rem;">
+                    <a id="signin-instead-link" href="#" style="font-size: 0.75rem; color: var(--fg-secondary); text-decoration: underline;">
+                        Sign in with account instead
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- LiveKit media SDK: only used when the server reports media mode 'livekit'.
+         Loaded from CDN like the pre-mesh version of this app did. -->
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.14/dist/livekit-client.umd.min.js"></script>
+    <script src="/js/api.js?v=14"></script>
+    <script src="/js/room.js?v=15"></script>
+</body>
+</html>
