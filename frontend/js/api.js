@@ -62,8 +62,20 @@ async function apiFetch(endpoint, options = {}) {
     }
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || 'Something went wrong');
+    if (!res.ok) throw new Error(errorMessage(data) || 'Something went wrong');
     return data;
+}
+
+// FastAPI validation errors arrive as data.detail = [{loc, msg, ...}].
+// Passing the array to Error() renders "[object Object]" in the UI banner —
+// extract the human-readable message(s) instead.
+function errorMessage(data) {
+    if (!data) return '';
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+        return data.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+    }
+    return '';
 }
 
 // Silently roll the session forward (sliding expiration). Call on app load
