@@ -6,7 +6,7 @@ A real-time peer-to-peer video call + chat web app built with **FastAPI**, **Web
 
 - **Live video & audio calls** via WebRTC (mesh topology — every peer connects to every other) **or** LiveKit SFU
 - **User accounts**: register/login with bcrypt-hashed passwords + JWT auth
-- **Persistent rooms**: create rooms (auto or custom code), join public rooms, see available rooms
+- **Persistent rooms**: create rooms (auto or custom code) — rooms are private by default and joined by code/invite link; the dashboard lists *your* rooms
 - **Persistent chat**: messages are stored in SQLite and replayed when you join a room
 - **Authenticated WebSockets**: the signaling connection validates your JWT before accepting
 - Mic / camera toggles, auto-mute badges, name tags, live video grid
@@ -55,6 +55,10 @@ Open **http://localhost:7000** → register → create/join a room. Open a secon
 ```bash
 sudo ./deploy.sh     # writes /etc/systemd/system/meetly.service, enables & starts on port 7000
 ```
+
+> `deploy.sh` (and `test_e2e.py`, the full user-journey test) live only in your
+> local checkout — they are intentionally in `.gitignore`, so clones of this
+> repo will not have them.
 
 ## Project layout
 

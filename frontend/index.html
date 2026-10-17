@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Meetly — Pure Video Communication</title>
-    <link rel="stylesheet" href="/styles.css?v=2">
+    <link rel="stylesheet" href="/styles.css?v=3">
 </head>
-<body style="min-h-screen: 100vh; display: flex; flex-direction: column; justify-content: space-between;">
+<body style="min-height: 100vh; display: flex; flex-direction: column; justify-content: space-between;">
 
     <!-- Top Navbar -->
     <header class="nav-header">
@@ -156,7 +156,7 @@
                 <div class="input-group">
                     <label class="label-uppercase" for="reg-password">Password</label>
                     <div style="position: relative;">
-                        <input id="reg-password" type="password" placeholder="At least 6 characters" class="input" style="padding-right: 2.5rem;">
+                        <input id="reg-password" type="password" placeholder="At least 8 characters" class="input" style="padding-right: 2.5rem;">
                         <button type="button" class="toggle-password" data-target="reg-password" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--fg-tertiary); cursor: pointer; font-size: 0.75rem;">
                             View
                         </button>
@@ -298,7 +298,7 @@
             const password = document.getElementById('reg-password').value;
             
             if (!username || !email || !password) return showError('Please fill in all required fields.');
-            if (password.length < 6) return showError('Password must be at least 6 characters.');
+            if (password.length < 8) return showError('Password must be at least 8 characters.');
 
             const btn = document.getElementById('register-btn');
             btn.disabled = true;

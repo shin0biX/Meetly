@@ -4,7 +4,12 @@
     const urlParams = new URLSearchParams(window.location.search);
     let room = (urlParams.get('room') || sessionStorage.getItem('meetly_room') || '').trim().toLowerCase();
 
-    if (!room) {
+    // The room code is interpolated into WebSocket/fetch paths below, so it
+    // must match exactly what the server accepts (rooms.py ROOM_CODE_PATTERN)
+    // — a crafted ?room=../api/x link must not pivot the request paths.
+    const ROOM_CODE_PATTERN = /^[a-z0-9_-]{1,64}$/;
+    if (!room || !ROOM_CODE_PATTERN.test(room)) {
+        sessionStorage.removeItem('meetly_room');
         window.location.href = '/dashboard.html';
         return;
     }
@@ -103,7 +108,9 @@
         maxReconnectAttempts: 10,
         reconnecting: false,
         intentionalLeave: false,
-        callStartTime: Date.now(),
+        // Set when the WebSocket 'joined' message arrives — a page idling in
+        // the guest modal must not accrue "call time".
+        callStartTime: null,
         unreadCount: 0,
         drawerOpen: false,
         activeDrawerTab: 'chat',
@@ -135,18 +142,17 @@
         signinInsteadLink.href = `/index.html?redirect=${encodeURIComponent('/room.html?room=' + room)}`;
     }
 
-    // Call Timer
+    // Call Timer — starts counting from the 'joined' message (state.callStartTime)
     setInterval(() => {
+        if (state.callStartTime === null || !callTimerEl) return;
         const elapsed = Math.floor((Date.now() - state.callStartTime) / 1000);
         const hrs = Math.floor(elapsed / 3600);
         const mins = Math.floor((elapsed % 3600) / 60);
         const secs = elapsed % 60;
-        if (callTimerEl) {
-            callTimerEl.textContent = 
-                (hrs > 0 ? String(hrs).padStart(2, '0') + ':' : '') +
-                String(mins).padStart(2, '0') + ':' +
-                String(secs).padStart(2, '0');
-        }
+        callTimerEl.textContent = 
+            (hrs > 0 ? String(hrs).padStart(2, '0') + ':' : '') +
+            String(mins).padStart(2, '0') + ':' +
+            String(secs).padStart(2, '0');
     }, 1000);
 
     // Dynamic Grid Layout Updater
@@ -159,7 +165,7 @@
         const pinnedTile = pinnedId ? document.getElementById('tile-' + pinnedId) : null;
 
         if (pinnedTile && count > 1) {
-            grid.className = 'w-full h-full max-h-full grid-pinned';
+            grid.className = 'grid-pinned';
             let strip = document.getElementById('pinned-strip');
             if (!strip) {
                 strip = document.createElement('div');
@@ -269,28 +275,24 @@
         tile.innerHTML = `
             <video autoplay playsinline webkit-playsinline ${isSelf ? 'muted' : ''}></video>
 
-            <div class="avatar-fallback hidden absolute inset-0 flex flex-col items-center justify-center bg-slate-900 z-10">
-                <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-brand-600 to-cyan-500 text-white font-extrabold text-xl sm:text-2xl flex items-center justify-center shadow-xl shadow-brand-500/20">
-                    ${escapeHtml(initials)}
-                </div>
+            <div class="avatar-fallback hidden">
+                <div class="avatar-circle">${escapeHtml(initials)}</div>
             </div>
 
             <span class="tile-hand-badge hidden">✋</span>
 
             <div class="tile-controls">
                 <button class="tile-icon-btn tile-pin-btn" data-id="${id}" title="Pin / fullscreen">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15v4.5M9 15H4.5M9 15l-5.5 5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5"/></svg>
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15v4.5M9 15H4.5M9 15l-5.5 5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5"/></svg>
                 </button>
                 <button class="tile-icon-btn tile-fullscreen-btn" data-id="${id}" title="Fullscreen">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
                 </button>
             </div>
 
-            <div class="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/75 backdrop-blur-md border border-white/10 text-white text-xs font-medium max-w-[80%]">
+            <div class="tile-name-tag">
                 <span class="truncate">${escapeHtml(displayName)}${isSelf ? ' (You)' : ''}</span>
-                <span class="tile-mute-icon hidden text-rose-400">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
-                </span>
+                <svg class="tile-mute-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
             </div>
         `;
 
@@ -336,6 +338,7 @@
     }
 
     function removeTile(id) {
+        stopAudioAnalyser(id);
         const tile = document.getElementById('tile-' + id);
         if (tile) tile.remove();
         if (state.localPinId === id) state.localPinId = null;
@@ -382,13 +385,42 @@
         badge.classList.toggle('failed', state === 'failed');
     }
 
-    function setupAudioAnalyser(stream, targetId) {
+    // Speaking indicator. One shared AudioContext is created lazily and reused
+    // for every tile — a fresh AudioContext per tile leaks them, and Chrome
+    // caps concurrent contexts (~6), which eventually breaks the indicators.
+    let sharedAudioCtx = null;
+
+    function getAudioContext() {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) return;
-            const audioCtx = new AudioContext();
-            const audioTracks = stream.getAudioTracks();
-            if (!audioTracks.length) return;
+            if (!AudioContext) return null;
+            if (!sharedAudioCtx) sharedAudioCtx = new AudioContext();
+            if (sharedAudioCtx.state === 'suspended') {
+                sharedAudioCtx.resume().catch(() => {});
+            }
+            return sharedAudioCtx;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // targetId -> { rafId, source }; cleaned up when the tile is removed.
+    const analysers = new Map();
+
+    function stopAudioAnalyser(targetId) {
+        const a = analysers.get(targetId);
+        if (!a) return;
+        analysers.delete(targetId);
+        cancelAnimationFrame(a.rafId);
+        try { a.source?.disconnect(); } catch (_) {}
+    }
+
+    function setupAudioAnalyser(stream, targetId) {
+        stopAudioAnalyser(targetId);
+        try {
+            if (!stream || !stream.getAudioTracks().length) return;
+            const audioCtx = getAudioContext();
+            if (!audioCtx) return;
 
             const source = audioCtx.createMediaStreamSource(stream);
             const analyser = audioCtx.createAnalyser();
@@ -398,25 +430,25 @@
             const bufferLength = analyser.frequencyBinCount;
             const dataArray = new Uint8Array(bufferLength);
 
-            let checkSpeaking = () => {
-                if (!document.getElementById('tile-' + targetId)) return;
+            let rafId = 0;
+            const checkSpeaking = () => {
+                const tile = document.getElementById('tile-' + targetId);
+                if (!tile) {
+                    // Tile is gone — stop the loop and release the graph node.
+                    stopAudioAnalyser(targetId);
+                    return;
+                }
                 analyser.getByteFrequencyData(dataArray);
                 let sum = 0;
                 for (let i = 0; i < bufferLength; i++) {
                     sum += dataArray[i];
                 }
                 const average = sum / bufferLength;
-                const tile = document.getElementById('tile-' + targetId);
-                if (tile) {
-                    if (average > 25) {
-                        tile.classList.add('is-speaking');
-                    } else {
-                        tile.classList.remove('is-speaking');
-                    }
-                }
-                requestAnimationFrame(checkSpeaking);
+                tile.classList.toggle('is-speaking', average > 25);
+                rafId = requestAnimationFrame(checkSpeaking);
             };
-            requestAnimationFrame(checkSpeaking);
+            rafId = requestAnimationFrame(checkSpeaking);
+            analysers.set(targetId, { rafId, source });
         } catch (e) {
             console.log('Audio analyser notice:', e);
         }
@@ -451,6 +483,24 @@
         pending.forEach(c => pc.addIceCandidate(c).catch(console.error));
     }
 
+    // ICE-failure recovery: a fresh offer with iceRestart is delivered through
+    // the normal offer/answer relay — the remote treats it like any offer and
+    // answers, so no extra protocol support is needed.
+    async function restartIceOffer(pc) {
+        if (pc.signalingState !== 'stable') return null;
+        pc._makingOffer = true;
+        try {
+            const offer = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(offer);
+            return pc.localDescription;
+        } catch (err) {
+            console.error('ICE restart offer failed:', err);
+            return null;
+        } finally {
+            pc._makingOffer = false;
+        }
+    }
+
     function createPeer(remoteId, peerName, isInitiator, isPeerOwner = false) {
         if (state.peers.has(remoteId)) return state.peers.get(remoteId);
 
@@ -472,8 +522,12 @@
         // and the offer negotiates nothing — a participant without a camera
         // could never receive the peers' video either. Add recvonly
         // transceivers so watch-only participants still get a full connection.
+        // The video one is kept on _screenPromotable: a camera-less participant
+        // later promoting it to sendrecv is how they can still share a screen
+        // (the only sendable "sender" they otherwise have is the mic).
         if (!currentStream || currentStream.getVideoTracks().length === 0) {
-            pc.addTransceiver('video', { direction: 'recvonly' });
+            const recvOnlyVideo = pc.addTransceiver('video', { direction: 'recvonly' });
+            pc._screenPromotable = recvOnlyVideo;
         }
         if (!currentStream || currentStream.getAudioTracks().length === 0) {
             pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -505,8 +559,16 @@
                 setTileConnState(remoteId, 'connected');
             } else if (s === 'failed') {
                 // Media is peer-to-peer: this normally means NAT traversal
-                // failed (no reachable TURN server), not a Meetly bug.
+                // failed (no reachable TURN server), not a Meetly bug. One
+                // automatic ICE restart gives a transient network change a
+                // chance to recover before the tile is declared failed.
                 setTileConnState(remoteId, 'failed');
+                if (!pc._iceRestartAttempted && pc.signalingState === 'stable') {
+                    pc._iceRestartAttempted = true;
+                    restartIceOffer(pc).then(sdp => {
+                        if (sdp) send({ type: 'offer', to: remoteId, sdp });
+                    }).catch(console.error);
+                }
             } else if (s === 'disconnected') {
                 setTileConnState(remoteId, 'connecting');
             }
@@ -548,6 +610,7 @@
     }
 
     function closeAllPeers() {
+        state.peers.forEach((pc, remoteId) => stopAudioAnalyser(remoteId));
         state.peers.forEach(pc => pc.close());
         state.peers.clear();
         earlyIce.clear();
@@ -593,15 +656,27 @@
     function attachAndPlay(track, video) {
         if (!track || !video) return;
         track.attach(video);
-        const tryPlay = () => video.play().catch(err => {
-            console.warn('Video play() failed, will retry on visibility/focus:', err);
-        });
-        tryPlay();
+        let resolved = false;
+        const tryPlay = () => {
+            if (resolved && !video.paused) return;
+            video.play().then(() => {
+                resolved = true;
+                // Play succeeded — stop retrying on future visibility/focus.
+                document.removeEventListener('visibilitychange', retryOnVisible);
+                window.removeEventListener('focus', retryOnVisible);
+            }).catch(err => {
+                console.warn('Video play() failed, will retry on visibility/focus:', err);
+            });
+        };
+        // Persistent listeners (not once:true): a single once-retry can be
+        // consumed while the permission prompt still has the tab backgrounded,
+        // leaving the tile black with no further attempts.
         const retryOnVisible = () => {
             if (document.visibilityState === 'visible' && video.paused) tryPlay();
         };
-        document.addEventListener('visibilitychange', retryOnVisible, { once: true });
-        window.addEventListener('focus', retryOnVisible, { once: true });
+        document.addEventListener('visibilitychange', retryOnVisible);
+        window.addEventListener('focus', retryOnVisible);
+        tryPlay();
     }
 
     async function connectLiveKit() {
@@ -690,6 +765,13 @@
             await lkRoom.connect(info.url, info.token);
         } catch (err) {
             stream?.getTracks().forEach(t => t.stop());
+            // The self tile exists by now — don't leave it as a black video
+            // with a live "mic" pretense; show the avatar and reflect reality
+            // on our own roster tile.
+            setTileCameraState('me', false);
+            setTileMicState('me', false);
+            send({ type: 'cam-state', on: false });
+            send({ type: 'mic-state', on: false });
             throw err;
         }
         state.lkConnected = true;
@@ -850,6 +932,7 @@
         switch (data.type) {
             case 'joined':
                 state.myId = data.id;
+                if (state.callStartTime === null) state.callStartTime = Date.now();
                 // Persist the server-issued, room-bound guest credential so a
                 // page refresh can reconnect as the same guest and retrieve
                 // private chat history. Never persist a client-generated ID.
@@ -1136,38 +1219,29 @@
     // Chat Management
     function appendChat(fromName, text, self, timeStr = null, opts = {}) {
         const time = timeStr || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const div = document.createElement('div');
-        div.className = 'flex flex-col ' + (self ? 'items-end' : 'items-start');
         const isPrivate = !!opts.private;
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + (self ? 'chat-msg-self' : 'chat-msg-received');
+
         const privateTag = isPrivate
-            ? `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-violet-500/20 text-violet-300 font-semibold uppercase tracking-wide">${escapeHtml(opts.label || 'Private')}</span>`
+            ? `<span class="chat-private-tag">${escapeHtml(opts.label || 'Private')}</span>`
             : '';
 
-        if (self) {
-            div.innerHTML = `
-                <div class="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
-                    <span class="font-medium">You</span>
-                    ${privateTag}
-                    <span>&bull;</span>
-                    <span class="text-[10px]">${time}</span>
-                </div>
-                <div class="px-3.5 py-2 rounded-2xl rounded-tr-sm ${isPrivate ? 'bg-gradient-to-r from-violet-600 to-violet-500' : 'bg-gradient-to-r from-brand-600 to-brand-500'} text-white text-xs sm:text-sm max-w-[85%] break-words shadow-md">
-                    ${escapeHtml(text)}
-                </div>
-            `;
-        } else {
-            div.innerHTML = `
-                <div class="flex items-center gap-1.5 mb-1 text-[11px] text-slate-400">
-                    <span class="font-semibold ${isPrivate ? 'text-violet-400' : 'text-cyan-400'}">${escapeHtml(fromName)}</span>
-                    ${privateTag}
-                    <span>&bull;</span>
-                    <span class="text-[10px]">${time}</span>
-                </div>
-                <div class="px-3.5 py-2 rounded-2xl rounded-tl-sm ${isPrivate ? 'bg-violet-950/60 border border-violet-700/50' : 'bg-slate-800/90 border border-slate-700/60'} text-slate-100 text-xs sm:text-sm max-w-[85%] break-words shadow-md">
-                    ${escapeHtml(text)}
-                </div>
-            `;
-        }
+        const meta = `
+            <div class="chat-meta">
+                <span class="chat-sender">${escapeHtml(self ? 'You' : fromName)}</span>
+                ${privateTag}
+                <span>&bull;</span>
+                <span class="chat-meta-time">${time}</span>
+            </div>`;
+
+        const bubbleClass = isPrivate
+            ? (self ? 'chat-bubble chat-bubble-sent chat-bubble-private-sent'
+                    : 'chat-bubble chat-bubble-received chat-bubble-private-received')
+            : (self ? 'chat-bubble chat-bubble-sent'
+                    : 'chat-bubble chat-bubble-received');
+
+        div.innerHTML = `${meta}<div class="${bubbleClass}">${escapeHtml(text)}</div>`;
 
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1216,20 +1290,16 @@
 
         peopleList.innerHTML = `
             <!-- Self -->
-            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/50">
-                <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 font-bold text-xs flex items-center justify-center">
-                            ${escapeHtml((name || 'U').substring(0, 2).toUpperCase())}
-                        </div>
-                    <div>
-                        <div class="text-xs font-semibold text-white flex items-center gap-1.5">
-                            <span>${escapeHtml(name)}</span>
-                            <span class="text-[10px] px-1.5 py-0.2 rounded bg-brand-500/20 text-brand-300 font-medium">You</span>
-                            ${state.isOwner ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold">Host</span>' : ''}
-                        </div>
+            <div class="people-row is-own-row">
+                <div class="people-row-main">
+                    <div class="people-avatar">${escapeHtml((name || 'U').substring(0, 2).toUpperCase())}</div>
+                    <div class="people-name">
+                        <span>${escapeHtml(name)}</span>
+                        <span class="people-badge">You</span>
+                        ${state.isOwner ? '<span class="people-badge host">Host</span>' : ''}
                     </div>
                 </div>
-                <div class="flex items-center gap-1.5 text-xs text-slate-400">
+                <div class="people-state">
                     <span>${state.micOn ? '🎙️' : '🔇'}</span>
                     <span>${state.camOn ? '📹' : '🚫'}</span>
                 </div>
@@ -1243,52 +1313,46 @@
             const forceMuted = !!state.peerForceMuted.get(peerId);
             const camForcedOff = !!state.peerCamForcedOff.get(peerId);
             const item = document.createElement('div');
-            item.className = 'flex items-center justify-between p-2.5 rounded-xl bg-slate-800/30 border border-slate-700/30';
+            item.className = 'people-row';
 
             let controls = '';
             if (state.isOwner) {
                 controls = `
-                    <div class="flex items-center gap-1">
-                        <button class="spotlight-btn p-1.5 rounded-lg ${isSpotlit ? 'text-brand-400 bg-brand-500/10' : 'text-slate-400 hover:text-brand-400 hover:bg-brand-500/10'} border border-transparent hover:border-brand-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${isSpotlit ? 'Remove spotlight' : 'Spotlight for everyone'}">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5"/></svg>
+                    <div class="people-actions">
+                        <button class="host-action-btn spotlight-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${isSpotlit ? 'Remove spotlight' : 'Spotlight for everyone'}">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5"/></svg>
                         </button>
                         ${isPeerHost ? `
-                        <button class="demote-host-btn p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Remove host rights">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6L6 18M6 6l12 12"/></svg>
+                        <button class="host-action-btn role demote-host-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Remove host rights">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6L6 18M6 6l12 12"/></svg>
                         </button>` : `
-                        <button class="make-host-btn p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Make host">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        <button class="host-action-btn role make-host-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Make host">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                         </button>`}
-                        <button class="mute-mic-btn p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${forceMuted ? 'Allow microphone' : 'Mute microphone'}">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M9 9V5a3 3 0 016 0v4"/></svg>
+                        <button class="host-action-btn danger mute-mic-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${forceMuted ? 'Allow microphone' : 'Mute microphone'}">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-14 0m7 7v4m-4 0h8M9 9V5a3 3 0 016 0v4"/></svg>
                         </button>
-                        <button class="disable-cam-btn p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${camForcedOff ? 'Turn camera back on' : 'Turn off camera'}">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        <button class="host-action-btn danger disable-cam-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="${camForcedOff ? 'Turn camera back on' : 'Turn off camera'}">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                         </button>
-                        <button class="kick-btn p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Remove participant">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6"/></svg>
+                        <button class="host-action-btn danger kick-btn" data-id="${peerId}" data-name="${escapeHtml(peerName)}" title="Remove participant">
+                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6"/></svg>
                         </button>
                     </div>`;
             } else {
-                controls = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span>`;
+                controls = `<span class="people-dot"></span>`;
             }
 
             item.innerHTML = `
-                <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-full bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center">
-                            ${escapeHtml((peerName || 'P').substring(0, 2).toUpperCase())}
-                        </div>
-                    <div>
-                        <div class="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                            <span>${escapeHtml(peerName)}</span>
-                            ${handUp ? '<span title="Hand raised">✋</span>' : ''}
-                            ${isPeerHost ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold">Host</span>' : ''}
-                        </div>
+                <div class="people-row-main">
+                    <div class="people-avatar">${escapeHtml((peerName || 'P').substring(0, 2).toUpperCase())}</div>
+                    <div class="people-name">
+                        <span>${escapeHtml(peerName)}</span>
+                        ${handUp ? '<span title="Hand raised">✋</span>' : ''}
+                        ${isPeerHost ? '<span class="people-badge host">Host</span>' : ''}
                     </div>
                 </div>
-                <div class="flex items-center gap-1">
-                    ${controls}
-                </div>
+                ${controls}
             `;
             peopleList.appendChild(item);
         });
@@ -1471,6 +1535,33 @@
     }
 
     // Screen Sharing
+    // Camera-less participants have no sendable video sender — but they DO
+    // have the recvonly video transceiver stored at pc._screenPromotable by
+    // createPeer. Promoting it to sendrecv and replacing its sender's track
+    // switches the connection into a screen-sending one; the direction change
+    // fires a renegotiation delivered as a normal offer through the relay.
+    async function promoteSendVideo(pc, remoteId, track) {
+        const transceiver = pc._screenPromotable;
+        if (!transceiver) return;
+        try {
+            transceiver.direction = 'sendrecv';
+            await transceiver.sender.replaceTrack(track);
+            if (pc.signalingState === 'stable') {
+                pc._makingOffer = true;
+                try {
+                    await pc.setLocalDescription(await pc.createOffer());
+                    send({ type: 'offer', to: remoteId, sdp: pc.localDescription });
+                } finally {
+                    pc._makingOffer = false;
+                }
+            } else {
+                console.warn('Cannot renegotiate screen share for peer', remoteId, '— signaling not stable');
+            }
+        } catch (err) {
+            console.error('Screen share (promoted sender) failed for peer', remoteId, ':', err);
+        }
+    }
+
     async function toggleScreenShare() {
         if (state.mediaMode === 'livekit') {
             await toggleScreenShareLiveKit();
@@ -1490,7 +1581,7 @@
             });
 
             state.isScreenSharing = true;
-            screenBtn.className = 'dock-btn bg-brand-500 text-white shadow-lg shadow-brand-500/30';
+            if (screenBtn) screenBtn.className = 'dock-btn dock-btn-sharing';
             showToast('Screen sharing started', 'success');
 
             const screenTrack = state.screenStream.getVideoTracks()[0];
@@ -1501,11 +1592,12 @@
                 video.srcObject = state.screenStream;
             }
 
-            state.peers.forEach(pc => {
-                const senders = pc.getSenders();
-                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+            state.peers.forEach((pc, remoteId) => {
+                const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
                 if (videoSender) {
                     videoSender.replaceTrack(screenTrack);
+                } else {
+                    promoteSendVideo(pc, remoteId, screenTrack);
                 }
             });
 
@@ -1535,7 +1627,7 @@
             // preserve sharpness instead of optimizing for motion.
             await state.lkRoom.localParticipant.setScreenShareEnabled(true, { audio: false, contentHint: 'detail' });
             state.isScreenSharing = true;
-            if (screenBtn) screenBtn.className = 'dock-btn bg-brand-500 text-white shadow-lg shadow-brand-500/30';
+            if (screenBtn) screenBtn.className = 'dock-btn dock-btn-sharing';
             showToast('Screen sharing started', 'success');
 
             const screenPub = state.lkRoom.localParticipant.getTrackPublication(LivekitClient.Track.Source.ScreenShare);
@@ -1551,7 +1643,7 @@
         } catch (err) {
             console.log('Screen share notice:', err);
             state.isScreenSharing = false;
-            if (screenBtn) screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex';
+            if (screenBtn) screenBtn.className = 'dock-btn';
         }
     }
 
@@ -1560,9 +1652,7 @@
         state.isScreenSharing = false;
 
         const screenBtn = document.getElementById('screen-btn');
-        if (screenBtn) {
-            screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex';
-        }
+        if (screenBtn) screenBtn.className = 'dock-btn';
 
         await state.lkRoom.localParticipant.setScreenShareEnabled(false).catch(() => {});
         if (state.localPinId === 'me-screen') state.localPinId = null;
@@ -1575,9 +1665,7 @@
         state.isScreenSharing = false;
 
         const screenBtn = document.getElementById('screen-btn');
-        if (screenBtn) {
-            screenBtn.className = 'dock-btn bg-slate-800 hover:bg-slate-700 text-white hidden sm:flex';
-        }
+        if (screenBtn) screenBtn.className = 'dock-btn';
 
         if (state.screenStream) {
             state.screenStream.getTracks().forEach(t => t.stop());
@@ -1593,15 +1681,27 @@
 
         // localStream may be null when the user has no camera permission.
         const camTrack = state.localStream ? state.localStream.getVideoTracks()[0] : null;
-        if (camTrack) {
-            state.peers.forEach(pc => {
-                const senders = pc.getSenders();
-                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
-                if (videoSender) {
-                    videoSender.replaceTrack(camTrack);
+        state.peers.forEach((pc, remoteId) => {
+            const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (!videoSender) return;
+            videoSender.replaceTrack(camTrack || null);
+            if (camTrack) return;
+            // There was no camera track to restore: this screen was flowing on
+            // the transceiver promoted in promoteSendVideo — demote it back to
+            // recvonly and renegotiate so peers stop rendering a frozen screen.
+            const transceiver = pc._screenPromotable;
+            if (transceiver && transceiver.direction === 'sendrecv') {
+                transceiver.direction = 'recvonly';
+                if (pc.signalingState === 'stable') {
+                    pc._makingOffer = true;
+                    pc.setLocalDescription(pc.createOffer())
+                        .then(() => send({ type: 'offer', to: remoteId, sdp: pc.localDescription }))
+                        .catch(console.error)
+                        .finally(() => { pc._makingOffer = false; });
                 }
-            });
-        }
+            }
+        });
+        setTileCameraState('me', state.camOn);
         showToast('Screen sharing stopped', 'info');
     }
 
@@ -1618,7 +1718,6 @@
         state.drawerOpen = true;
         state.activeDrawerTab = tab;
         sideDrawer.classList.add('open');
-        sideDrawer.classList.remove('translate-x-full');
 
         const chatTab = document.getElementById('drawer-tab-chat');
         const peopleTab = document.getElementById('drawer-tab-people');
@@ -1645,11 +1744,22 @@
     function closeDrawer() {
         state.drawerOpen = false;
         sideDrawer.classList.remove('open');
-        sideDrawer.classList.add('translate-x-full');
     }
 
     function setConnBadgeStatus(text, status = 'connected') {
         if (connStatusText) connStatusText.textContent = text;
+        // The dot actually reflects the state now — previously it stayed
+        // hardcoded green even while the text read "Access Denied".
+        const dot = document.querySelector('#conn-badge .conn-dot');
+        if (!dot) return;
+        const STATUS_COLORS = {
+            connected: '#2E7D32',
+            warning: '#D9A64B',
+            error: 'var(--danger)',
+            offline: 'var(--fg-tertiary)',
+        };
+        dot.style.backgroundColor = STATUS_COLORS[status] || STATUS_COLORS.offline;
+        dot.classList.toggle('pulse', status === 'connected' || status === 'warning');
     }
 
     // WebSocket Lifecycle
@@ -1685,12 +1795,12 @@
             // stale connection (normally caused by a refresh/reconnect). Do
             // not reconnect the old socket or two tabs can fight indefinitely.
             if (event.code === 4000) {
-                setConnBadgeStatus('Replaced');
+                setConnBadgeStatus('Replaced', 'error');
                 return;
             }
 
             if (event.code >= 4400 && event.code < 4500) {
-                setConnBadgeStatus('Access Denied');
+                setConnBadgeStatus('Access Denied', 'error');
                 showToast('Unable to connect: ' + (event.reason || 'Authentication failed'), 'error', 5000);
                 // A room invite must remain usable for guests. Discard only the
                 // room-scoped guest credential when the server rejects it.
@@ -1705,7 +1815,7 @@
                 return;
             }
 
-            setConnBadgeStatus('Reconnecting...');
+            setConnBadgeStatus('Reconnecting...', 'warning');
             attemptReconnect();
         };
     }
@@ -1713,7 +1823,7 @@
     function attemptReconnect() {
         if (state.intentionalLeave) return;
         if (state.reconnectAttempts >= state.maxReconnectAttempts) {
-            setConnBadgeStatus('Disconnected');
+            setConnBadgeStatus('Disconnected', 'error');
             showToast('Connection lost. Please rejoin the call.', 'error');
             return;
         }
@@ -1819,6 +1929,9 @@
     // Keyboard Shortcuts
     window.addEventListener('keydown', (e) => {
         if (document.activeElement === chatInput || document.activeElement === guestNameInput) return;
+        // Never hijack the key when a browser/system modifier combo is in play
+        // (e.g. ⌘V paste, Ctrl+C behind a selection, Alt-Tab focus tricks).
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.key === 'm' || e.key === 'M') toggleMic();
         if (e.key === 'v' || e.key === 'V') toggleCam();
         if (e.key === 'c' || e.key === 'C') toggleDrawer('chat');

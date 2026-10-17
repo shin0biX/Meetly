@@ -12,6 +12,21 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+from sqlalchemy import event
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_connection, _record):
+    """WAL journaling + busy timeout. Without these, a chat write from the
+    WebSocket path racing a REST request could fail with 'database is locked'
+    (chat persist treats it as non-fatal, so messages were silently dropped).
+    WAL also unblocks concurrent readers during a write."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
+
+
 def run_migrations():
     """Lightweight migrations for schema changes that `create_all` can't apply
     to existing tables. Additive columns and nullable-rebuilds live here."""

@@ -91,7 +91,7 @@ html, body {
 /* Buttons */
 .btn {
     display: inline-flex;
-    items-center: center;
+    align-items: center;
     justify-content: center;
     gap: 0.5rem;
     padding: 0.625rem 1.25rem;
@@ -894,4 +894,221 @@ html, body {
     .video-grid-container {
         padding: 0.75rem;
     }
+}
+
+/* ==========================================================================
+   CLASSES FOR JS-RENDERED MARKUP (room.js)
+   The tile/chat/people DOM is built in room.js, so these styles live here
+   instead of inline Tailwind utilities (Tailwind is never loaded).
+   .hidden must come AFTER component "display" rules: inline styles set by JS
+   still override it, while class-based "hidden" wins over the stylesheet.
+   ========================================================================== */
+
+.hidden { display: none; }
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Video tile internals ----------------------------------------------- */
+.tile-icon-btn svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+.tile-mute-icon {
+    display: none;
+    color: #FB7185;
+    flex-shrink: 0;
+}
+
+/* Icons inside dock buttons rendered/restored dynamically */
+.dock-btn.dock-btn-sharing {
+    background-color: var(--accent);
+    color: #FFFFFF;
+}
+.dock-btn.dock-btn-sharing:hover {
+    background-color: var(--accent-hover);
+}
+
+/* Chat messages (appendChat) ----------------------------------------- */
+.chat-msg {
+    display: flex;
+    flex-direction: column;
+}
+.chat-msg-self { align-items: flex-end; }
+.chat-msg-received { align-items: flex-start; }
+
+.chat-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.2rem;
+    font-size: 0.6875rem;
+    color: var(--fg-tertiary);
+}
+.chat-meta-time {
+    font-size: 0.625rem;
+}
+.chat-sender {
+    font-weight: 600;
+    color: var(--accent);
+}
+.chat-private-tag {
+    font-size: 0.5625rem;
+    padding: 0.1rem 0.425rem;
+    border-radius: var(--radius-full);
+    background: var(--accent-subtle);
+    color: var(--accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.chat-bubble {
+    max-width: 85%;
+    padding: 0.5rem 0.875rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    word-break: break-word;
+    box-shadow: var(--shadow-sm);
+}
+.chat-bubble-sent {
+    background: var(--fg);
+    color: #FFFFFF;
+    align-self: flex-end;
+    border-bottom-right-radius: var(--radius-sm);
+}
+.chat-bubble-received {
+    background: var(--bg-surface);
+    color: var(--fg);
+    align-self: flex-start;
+    border-bottom-left-radius: var(--radius-sm);
+}
+.chat-bubble-private-sent {
+    background: var(--accent);
+}
+.chat-bubble-private-received {
+    background: var(--accent-subtle);
+    border: 1px solid var(--accent-border);
+}
+
+/* People list (updatePeopleList) -------------------------------------- */
+.people-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.625rem;
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+}
+.people-row.is-own-row {
+    border-color: var(--border-strong);
+}
+
+.people-row-main {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+}
+
+.people-avatar {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.6875rem;
+    background: var(--bg-elevated);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+}
+
+.people-name {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--fg);
+    min-width: 0;
+}
+.people-name > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.people-badge {
+    flex-shrink: 0;
+    font-size: 0.625rem;
+    padding: 0.1rem 0.375rem;
+    border-radius: var(--radius-sm);
+    background: var(--accent-subtle);
+    color: var(--accent);
+    font-weight: 600;
+}
+.people-badge.host {
+    background: var(--fg);
+    color: #FFFFFF;
+    font-weight: 700;
+}
+
+.people-state {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+}
+
+.people-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.people-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--success);
+}
+
+.host-action-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+.host-action-btn:hover {
+    background: var(--accent-subtle);
+    color: var(--accent);
+}
+.host-action-btn.role:hover {
+    background: var(--success-subtle);
+    color: var(--success);
+}
+.host-action-btn.danger:hover {
+    background: var(--danger-subtle);
+    color: var(--danger);
+}
+.host-action-btn svg {
+    width: 0.875rem;
+    height: 0.875rem;
 }

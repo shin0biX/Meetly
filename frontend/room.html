@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Meetly — Live Room</title>
-    <link rel="stylesheet" href="/styles.css?v=2">
+    <link rel="stylesheet" href="/styles.css?v=3">
 </head>
 <body class="room-body">
 
@@ -222,9 +222,12 @@
     </div>
 
     <!-- LiveKit media SDK: only used when the server reports media mode 'livekit'.
-         Loaded from CDN like the pre-mesh version of this app did. -->
-    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.14/dist/livekit-client.umd.min.js"></script>
+         Pinned version + SRI hash: a tampered CDN response can no longer run
+         inside the room (it would otherwise have access to tokens, mic/cam). -->
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.14/dist/livekit-client.umd.min.js"
+            integrity="sha384-NLIqHsfBYa4w/s036f4gh8zg+VXbIFGgdb7MWlQqZk2dBEtotPw9Ls94kkj/eL0q"
+            crossorigin="anonymous"></script>
     <script src="/js/api.js?v=14"></script>
-    <script src="/js/room.js?v=15"></script>
+    <script src="/js/room.js?v=16"></script>
 </body>
 </html>

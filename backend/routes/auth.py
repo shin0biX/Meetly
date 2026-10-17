@@ -54,7 +54,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=2, max_length=30)
     email: EmailStr
     full_name: str = Field(default="", max_length=100)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UserOut(BaseModel):
@@ -115,9 +115,18 @@ def get_optional_user(
         return None
 
 
+# A known bcrypt hash used to burn the same verify() time when a username
+# does not exist — otherwise unknown usernames respond measurably faster than
+# real ones, which becomes a username-enumeration oracle.
+_DUMMY_BCRYPT_HASH = bcrypt_context.hash("meetly-timing-equalizer")
+
+
 def authenticate_user(db: Session, username: str, password: str) -> User | None:
     user = db.query(User).filter(User.username == username).first()
-    if not user or not bcrypt_context.verify(password, user.hashed_password):
+    if not user:
+        bcrypt_context.verify(password, _DUMMY_BCRYPT_HASH)
+        return None
+    if not bcrypt_context.verify(password, user.hashed_password):
         return None
     return user
 
@@ -200,7 +209,17 @@ def me(current_user: Annotated[User, Depends(get_current_user)]):
 def refresh(payload: RefreshRequest, db: Annotated[Session, Depends(get_db)], request: Request):
     now = datetime.now(timezone.utc)
     stored = db.query(RefreshToken).filter(RefreshToken.token_hash == _hash_refresh_token(payload.refresh_token)).first()
-    if not stored or stored.revoked:
+    if not stored:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if stored.revoked:
+        # This token was already rotated once and is being replayed — the
+        # classic stolen-credential signal. Kill the entire session family so
+        # the attacker's copy cannot outrun the legitimate client.
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == stored.user_id,
+            RefreshToken.revoked == False,
+        ).update({RefreshToken.revoked: True}, synchronize_session=False)
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     expires_at = stored.expires_at.replace(tzinfo=timezone.utc) if stored.expires_at.tzinfo is None else stored.expires_at
     session_start = stored.original_session_start.replace(tzinfo=timezone.utc) if stored.original_session_start.tzinfo is None else stored.original_session_start
