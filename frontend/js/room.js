@@ -96,6 +96,11 @@
         isScreenSharing: false,
         peers: new Map(),     // remoteId -> RTCPeerConnection
         peerNames: new Map(), // remoteId -> name
+        // Ids the server has announced as left. Signaling that is already in
+        // flight when a peer leaves (a late offer) would otherwise recreate its
+        // PeerConnection, putting someone who has gone back in the count until
+        // the next join/leave corrects it.
+        departed: new Set(),
         peerRoles: new Map(), // remoteId -> isOwner (bool)
         peerHands: new Map(), // remoteId -> hand raised (bool)
         peerForceMuted: new Map(), // remoteId -> host force-muted (bool)
@@ -950,6 +955,8 @@
                 }
 
                 setConnBadgeStatus('Connected', 'connected');
+                // Fresh roster from the server on (re)join: nothing is stale yet.
+                state.departed.clear();
 
                 // The server-issued guest credential now exists, so history can
                 // be loaded immediately without waiting for camera permissions
@@ -1007,6 +1014,7 @@
 
             case 'peer-joined':
                 showToast(`${data.name} joined`, 'info');
+                state.departed.delete(data.id);
                 if (state.mediaMode === 'p2p') {
                     createPeer(data.id, data.name, false, !!data.is_owner);
                 } else {
@@ -1023,6 +1031,9 @@
                 break;
 
             case 'offer': {
+                // A late offer from someone the server already announced as gone
+                // (crossed on the wire) must not resurrect them as a participant.
+                if (state.departed.has(data.from)) break;
                 const pcOffer = createPeer(data.from, data.from_name, false);
                 if (!pcOffer) break;
                 // Perfect-negotiation-lite: offers are normally only created by
@@ -1176,6 +1187,7 @@
                 // for an unknown id (e.g. a stale entry reaped at join time)
                 // shouldn't produce a confusing "A participant left" toast.
                 if (leavingName) showToast(`${leavingName} left`, 'info');
+                state.departed.add(data.id);
                 closePeer(data.id);
                 break;
 
