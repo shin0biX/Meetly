@@ -1171,8 +1171,11 @@
                 break;
 
             case 'peer-left':
-                const leavingName = state.peerNames.get(data.id) || 'A participant';
-                showToast(`${leavingName} left`, 'info');
+                const leavingName = state.peerNames.get(data.id);
+                // Only announce peers we actually had a tile for: a peer-left
+                // for an unknown id (e.g. a stale entry reaped at join time)
+                // shouldn't produce a confusing "A participant left" toast.
+                if (leavingName) showToast(`${leavingName} left`, 'info');
                 closePeer(data.id);
                 break;
 
@@ -1182,6 +1185,12 @@
                 } else {
                     setConnBadgeStatus(`${data.count} in call`, 'connected');
                 }
+                break;
+
+            case 'ping':
+                // Server heartbeat: answer so a half-open socket isn't counted
+                // as a participant (the server evicts after two missed probes).
+                send({ type: 'pong' });
                 break;
         }
     }

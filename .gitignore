@@ -117,3 +117,5 @@ setup_infra.sh
 add_to_tunnel.sh
 deploy.sh
 meetly.db
+meetly.db-shm
+meetly.db-wal

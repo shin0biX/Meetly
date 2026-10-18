@@ -31,6 +31,14 @@ MAX_WS_MESSAGE_BYTES = 64 * 1024
 # Clients must authenticate promptly after the WebSocket is accepted. This prevents
 # idle unauthenticated connections from consuming server resources indefinitely.
 WS_AUTH_TIMEOUT_SECONDS = 10
+# App-level heartbeat. A socket that dies without a close frame (tab killed,
+# network drop, sleeping laptop) never raises in receive_text(), so without this
+# its member sat in ROOMS forever and the room's participant count included
+# people who had long since left.
+WS_HEARTBEAT_SECONDS = 25
+# Rooms currently being reaped — guards against recursion, because the
+# corrected peer-count broadcast can itself discover more dead sockets.
+_REAPING: set[str] = set()
 RATE_LIMITS: Dict[str, Tuple[int, float]] = {
     "chat": (8, 10.0),
     "reaction": (15, 5.0),
@@ -119,12 +127,19 @@ class RoomMember:
         # Raised-hand is sticky (persists until lowered or the member leaves),
         # unlike one-off emoji reactions which are never stored server-side.
         self.hand_raised = False
+        # Set when a send fails: the socket is gone. The member is removed by
+        # reap_dead_members() rather than sitting in ROOMS inflating the count.
+        self.dead = False
 
-    async def send(self, message: dict) -> None:
+    async def send(self, message: dict) -> bool:
+        if self.dead:
+            return False
         try:
             await self.websocket.send_text(json.dumps(message))
+            return True
         except Exception:
-            pass
+            self.dead = True
+            return False
 
 
 # room_code -> {client_id: RoomMember}
@@ -143,17 +158,61 @@ def get_room_member_count(room_code: str) -> int:
     return len(_room(room_code))
 
 
-async def broadcast(room_code: str, message: dict, exclude: Optional[str] = None) -> None:
+async def broadcast(room_code: str, message: dict, exclude: Optional[str] = None) -> int:
+    """Send to every member; returns how many sends failed (dead sockets)."""
+    failures = 0
     for member in list(_room(room_code).values()):
         if member.client_id == exclude:
             continue
-        await member.send(message)
+        # A failed send flags the member as dead; the next reap removes it.
+        if not await member.send(message):
+            failures += 1
+    return failures
+
+
+async def reap_dead_members(room_code: str) -> None:
+    """Drop members whose socket has failed, then tell the room about it.
+
+    A dead member otherwise stays in ROOMS forever (nothing raises when a
+    killed tab's socket is never written to), so the participant count would
+    include users who already left.
+    """
+    if room_code in _REAPING:
+        return
+    _REAPING.add(room_code)
+    try:
+        room_members = _room(room_code)
+        dead_ids = [cid for cid, m in list(room_members.items()) if m.dead]
+        for cid in dead_ids:
+            dead_member = room_members.pop(cid, None)
+            if dead_member is None:
+                continue
+            revoke_turn_ticket(dead_member.turn_ticket)
+            if SPOTLIGHTS.get(room_code) == cid:
+                SPOTLIGHTS[room_code] = None
+            await broadcast(room_code, {"type": "peer-left", "id": cid}, exclude=cid)
+        if dead_ids:
+            await broadcast_peer_count(room_code)
+        if not room_members:
+            ROOMS.pop(room_code, None)
+            SPOTLIGHTS.pop(room_code, None)
+    finally:
+        _REAPING.discard(room_code)
 
 
 async def broadcast_peer_count(room_code: str) -> None:
-    """Notify all members of the current peer count."""
-    count = get_room_member_count(room_code)
-    await broadcast(room_code, {"type": "peer-count", "count": count})
+    """Notify all members of the current peer count.
+
+    Reaps before counting: a count that includes dead sockets is exactly the
+    glitch this guards against. Sending the count is also what reveals a
+    socket that failed since the last pass, so repeat until a pass reaches
+    every remaining member — peers must never settle on an inflated number.
+    """
+    for _ in range(5):
+        await reap_dead_members(room_code)
+        count = get_room_member_count(room_code)
+        if not await broadcast(room_code, {"type": "peer-count", "count": count}):
+            return
 
 
 def _can_host_act_on(actor: RoomMember, target: RoomMember) -> bool:
@@ -398,6 +457,8 @@ async def websocket_endpoint(
     use_livekit = is_livekit_configured()
 
     try:
+        # A peer whose socket is gone must not appear in the newcomer's roster.
+        await reap_dead_members(room_code)
         # Notify newcomer with self info & peer roster
         peers = [
             {
@@ -442,9 +503,25 @@ async def websocket_endpoint(
 
         event_buckets: Dict[str, Deque[float]] = defaultdict(deque)
         malformed_messages = 0
+        missed_heartbeats = 0
 
         while True:
-            raw = await websocket.receive_text()
+            try:
+                raw = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=WS_HEARTBEAT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                # Idle stretch: probe the client. The browser answers with
+                # 'pong'; a socket that died without a close frame cannot, so
+                # two unanswered probes mean the member is gone.
+                still_alive = await member.send({"type": "ping"})
+                missed_heartbeats += 1
+                if not still_alive or missed_heartbeats >= 2:
+                    break
+                # We're alive — also clean up any ghosts we just noticed.
+                await reap_dead_members(room_code)
+                continue
+            missed_heartbeats = 0
             if len(raw.encode("utf-8")) > MAX_WS_MESSAGE_BYTES:
                 await websocket.close(code=1009, reason="Message too large")
                 break

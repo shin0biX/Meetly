@@ -90,6 +90,10 @@ Meetly/
 - **TURN server needed for real-world calls**: STUN only works when both peers aren't behind symmetric NAT. Deploy **coturn** and add its `iceServers` to `room.js` (`CONFIG`).
 - **HTTPS required** for `getUserMedia` on non-localhost. Behind a reverse proxy, use `wss://`.
 - Mesh topology degrades beyond ~6-8 participants; use an **SFU** (LiveKit / mediasoup) for larger calls.
+- **Presence lives in memory**, so it is per-process (Meetly assumes a single worker). Dead sockets
+  are detected by an app-level heartbeat every 25s and then removed: a closed tab is noticed
+  immediately, while an abrupt disconnect (killed process, sleeping laptop, lost network) can keep
+  a stale participant in the count for up to ~50s before it is reaped.
 - `hosting` secrets live in `.env` (gitignored); the DB `backend/meetly.db` is also gitignored.
 
 ### WebSocket origin security
